@@ -32,7 +32,7 @@ jobs:
       - name: Install prerequisites (Fedora container only)
         if: matrix.container != ''
         run: |
-          dnf install -y git tar gzip
+          dnf install -y git tar gzip gcc
           git config --global --add safe.directory "*"
 
       - uses: actions/checkout@v6
