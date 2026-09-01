@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hold Court</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div id="app">
+	<nav id="pane-folders">
+		<ul>
+		{{range .Folders}}
+			{{if .Heading}}<li class="folder-heading">{{.Label}}</li>
+			{{else}}<li{{if eq .ID $.SelectedFolder}} class="selected"{{end}} data-folder-id="{{.ID}}">{{.Label}} <span class="hold-count">{{.Count}}</span></li>
+			{{end}}
+		{{end}}
+		</ul>
+	</nav>
+	<section id="pane-list">
+		<ul>
+		{{range .ListHolds}}
+			<li{{if .Unread}} class="unread"{{end}} data-hold-id="{{.ID}}">{{.Title}} <span class="hold-count">{{slice .HeldAt 0 10}}</span></li>
+		{{end}}
+		</ul>
+	</section>
+	<section id="pane-reading">
+		{{with .SelectedHold}}
+		<h1>{{.Title}}</h1>
+		<p class="question">{{.Question}}</p>
+		<p><a href="{{.URL}}" target="_blank" rel="noopener">{{.Repo}} #{{.PR}}</a> &middot; {{.State}}</p>
+		<div class="review-body">{{.ReviewHTML}}</div>
+		<div id="ruling-bar">
+			<button type="button" data-action="proceed">p: proceed</button>
+			<button type="button" data-action="changes">c: changes</button>
+			<button type="button" data-action="close">x: close</button>
+			<button type="button" data-action="discuss">d: discuss</button>
+			<div><textarea id="note-input" rows="2" placeholder="annotate (i)"></textarea></div>
+			<button type="button" id="save-btn">s: save pending rulings</button>
+		</div>
+		{{else}}
+		<p>No holds in this folder.</p>
+		{{end}}
+	</section>
+</div>
+<div id="pending-bar" hidden></div>
+<div id="cheatsheet-overlay" hidden>
+	<div class="sheet">
+		<h2>Keys</h2>
+		<table>
+		{{range .Keybindings}}
+			<tr><td>{{.Key}}</td><td>{{.Action}}</td></tr>
+		{{end}}
+		</table>
+	</div>
+</div>
+<script id="holds-data" type="application/json">{{.HoldsJSON}}</script>
+<script id="folders-data" type="application/json">{{.FoldersJSON}}</script>
+<script src="/static/app.js"></script>
+</body>
+</html>
