@@ -293,6 +293,15 @@ func filterByFolder(views []holdJSON, folderID string) []holdJSON {
 	return out
 }
 
+// sanitizeForLog strips CR/LF from s before it reaches a log line. id and
+// hold-id values here come from client-controlled request data (a URL path
+// segment or JSON body field) and are not constrained to a newline-free
+// charset by validation, so logging them unsanitized would let a crafted
+// request forge fake-looking log lines (CWE-117).
+func sanitizeForLog(s string) string {
+	return strings.NewReplacer("\r", "", "\n", "").Replace(s)
+}
+
 // requireJSONContentType rejects a request whose Content-Type is missing or
 // is not application/json (optional parameters, e.g. "; charset=utf-8", are
 // allowed) with 415, before the body is decoded.
@@ -330,7 +339,7 @@ func (s *server) handleSetRead(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	log.Printf("hold-court: read state set for hold %s: unread=%v", id, body.Unread)
+	log.Printf("hold-court: read state set for hold %s: unread=%v", sanitizeForLog(id), body.Unread) //nolint:gosec // sanitizeForLog strips CR/LF above; gosec's taint tracker doesn't see through it
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -374,7 +383,7 @@ func (s *server) handleSaveRulings(w http.ResponseWriter, r *http.Request) {
 			res.Error = err.Error()
 		} else {
 			res.OK = true
-			log.Printf("hold-court: ruling written for hold %s: action=%s", rl.HoldID, rl.Action)
+			log.Printf("hold-court: ruling written for hold %s: action=%s", sanitizeForLog(rl.HoldID), rl.Action)
 		}
 		results = append(results, res)
 	}
