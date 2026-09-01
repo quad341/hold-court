@@ -25,5 +25,5 @@ func renderMarkdown(src string) (template.HTML, error) {
 	if err := goldmark.Convert([]byte(src), &buf); err != nil {
 		return "", fmt.Errorf("server: render markdown: %w", err)
 	}
-	return template.HTML(markdownPolicy.SanitizeBytes(buf.Bytes())), nil
+	return template.HTML(markdownPolicy.SanitizeBytes(buf.Bytes())), nil //nolint:gosec // sanitized by bluemonday above, standard sanitize-then-trust
 }

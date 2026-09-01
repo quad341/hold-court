@@ -179,8 +179,8 @@ func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		SelectedFolder: selectedFolder,
 		ListHolds:      listHolds,
 		SelectedHold:   selected,
-		HoldsJSON:      template.JS(holdsJSON),
-		FoldersJSON:    template.JS(foldersJSON),
+		HoldsJSON:      template.JS(holdsJSON),   //nolint:gosec // encoding/json escapes <,>,& by default; safe to embed in a script tag
+		FoldersJSON:    template.JS(foldersJSON), //nolint:gosec // encoding/json escapes <,>,& by default; safe to embed in a script tag
 		Keybindings:    Keybindings,
 	}
 

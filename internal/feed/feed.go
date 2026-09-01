@@ -59,7 +59,7 @@ func ScanDir(dir string) ([]*Hold, error) {
 			continue
 		}
 		path := filepath.Join(dir, entry.Name())
-		data, err := os.ReadFile(path)
+		data, err := os.ReadFile(path) //nolint:gosec // entry.Name() is an OS-returned directory entry, not external input
 		if err != nil {
 			return nil, fmt.Errorf("feed: read %s: %w", path, err)
 		}

@@ -101,7 +101,7 @@ func serve(args []string) error {
 
 	fmt.Printf("Hold Court is in session: http://%s\n", ln.Addr())
 
-	httpSrv := &http.Server{Handler: handler}
+	httpSrv := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

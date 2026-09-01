@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // registers the "sqlite" driver with database/sql
 )
 
 const schema = `
@@ -47,7 +47,7 @@ func Open(path string) (*Store, error) {
 	db.SetMaxOpenConns(1) // modernc.org/sqlite: single-writer file, avoid SQLITE_BUSY
 
 	if _, err := db.Exec(schema); err != nil {
-		db.Close()
+		_ = db.Close() // best-effort: we're already returning the schema error
 		return nil, fmt.Errorf("store: create schema: %w", err)
 	}
 

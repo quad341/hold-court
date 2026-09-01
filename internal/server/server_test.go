@@ -57,7 +57,7 @@ func newTestHandler(t *testing.T) http.Handler {
   "resolved": false,
   "resolved_reason": ""
 }`
-	if err := os.WriteFile(filepath.Join(feedDir, "hold1.json"), []byte(holdJSON), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(feedDir, "hold1.json"), []byte(holdJSON), 0o600); err != nil {
 		t.Fatalf("write feed fixture: %v", err)
 	}
 
@@ -67,7 +67,7 @@ func newTestHandler(t *testing.T) http.Handler {
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
-	t.Cleanup(func() { st.Close() })
+	t.Cleanup(func() { _ = st.Close() })
 
 	h, err := New(Config{
 		FeedDir:    feedDir,

@@ -24,7 +24,7 @@ func TestWrite_CreatesFileWithSchema(t *testing.T) {
 	}
 
 	path := filepath.Join(dir, "gastownhall-gascity-5795-a1b2c3.json")
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // reads back the fixture this test just wrote
 	if err != nil {
 		t.Fatalf("expected file at %s: %v", path, err)
 	}
@@ -68,7 +68,7 @@ func TestRunHook_PipesJSONToStdin(t *testing.T) {
 	outPath := filepath.Join(dir, "hook-out.json")
 	scriptPath := filepath.Join(dir, "hook.sh")
 	script := "#!/bin/sh\ncat > " + outPath + "\n"
-	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+	if err := os.WriteFile(scriptPath, []byte(script), 0o700); err != nil { //nolint:gosec // hook script must be executable
 		t.Fatalf("write hook script: %v", err)
 	}
 
@@ -84,7 +84,7 @@ func TestRunHook_PipesJSONToStdin(t *testing.T) {
 		t.Fatalf("RunHook returned error: %v", err)
 	}
 
-	data, err := os.ReadFile(outPath)
+	data, err := os.ReadFile(outPath) //nolint:gosec // reads back the fixture this test's own hook script just wrote
 	if err != nil {
 		t.Fatalf("expected hook to write %s: %v", outPath, err)
 	}
@@ -111,7 +111,7 @@ func TestRunHook_NonZeroExitReturnsError(t *testing.T) {
 	}
 	dir := t.TempDir()
 	scriptPath := filepath.Join(dir, "fail.sh")
-	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nexit 1\n"), 0o700); err != nil { //nolint:gosec // hook script must be executable
 		t.Fatalf("write hook script: %v", err)
 	}
 
@@ -126,7 +126,7 @@ func TestReadResult_Found(t *testing.T) {
 	holdID := "some-hold"
 	resultJSON := `{"status":"executed","summary":"merged as-is"}`
 	path := filepath.Join(dir, holdID+".result.json")
-	if err := os.WriteFile(path, []byte(resultJSON), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(resultJSON), 0o600); err != nil {
 		t.Fatalf("write result fixture: %v", err)
 	}
 
@@ -150,5 +150,41 @@ func TestReadResult_NotFound(t *testing.T) {
 	}
 	if found {
 		t.Fatalf("expected found=false, got result %+v", res)
+	}
+}
+
+// TestRejectsPathTraversalHoldID guards handleSaveRulings' HTTP entry point:
+// hold_id there comes straight from the request body, so Write, Read, and
+// ReadResult must all refuse an ID that could walk a rulings-file path
+// outside dir rather than silently joining it in.
+func TestRejectsPathTraversalHoldID(t *testing.T) {
+	dir := t.TempDir()
+	escapeTarget := filepath.Join(filepath.Dir(dir), "escaped.json")
+	defer func() { _ = os.Remove(escapeTarget) }()
+
+	badIDs := []string{
+		"../escaped",
+		"a/../../escaped",
+		"/etc/passwd",
+		"",
+		".",
+		"..",
+	}
+
+	for _, id := range badIDs {
+		r := Ruling{HoldID: id, Action: Proceed, RuledBy: "operator", RuledAt: time.Now()}
+		if err := Write(dir, r); err == nil {
+			t.Errorf("Write(%q): expected error, got nil", id)
+		}
+		if _, found, err := Read(dir, id); err == nil || found {
+			t.Errorf("Read(%q): expected error, got found=%v err=%v", id, found, err)
+		}
+		if _, found, err := ReadResult(dir, id); err == nil || found {
+			t.Errorf("ReadResult(%q): expected error, got found=%v err=%v", id, found, err)
+		}
+	}
+
+	if _, err := os.Stat(escapeTarget); !os.IsNotExist(err) {
+		t.Fatalf("traversal id escaped dir: %s exists", escapeTarget)
 	}
 }

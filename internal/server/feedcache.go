@@ -83,7 +83,7 @@ func (c *feedCache) watch() {
 		log.Printf("hold-court: fsnotify unavailable, falling back to interval-only rescan: %v", err)
 		return
 	}
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 
 	if err := w.Add(c.dir); err != nil {
 		log.Printf("hold-court: watch %s: %v (falling back to interval-only rescan)", c.dir, err)
