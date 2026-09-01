@@ -17,6 +17,22 @@ Reads like email. Rules like a bench.
 hold queue is the first feed source — but the feed contract is deliberately
 tool-agnostic.
 
+## Screenshots
+
+Three panes, mutt-shaped: folders by state and class on the left, the hold list in the middle, the reading pane with the one question, the prepared review, and the ruling bar on the right.
+
+![Hold Court inbox: folders, hold list, and the reading pane](docs/images/inbox.png)
+
+Open a hold with `Enter`, rule with `p` / `c` / `x` / `d`, annotate with `i`, save with `s`.
+
+![Reading pane with the prepared review and the ruling bar](docs/images/reading-pane.png)
+
+`?` shows the key cheatsheet.
+
+![Keyboard cheatsheet overlay](docs/images/keys.png)
+
+Synthetic feed data; light theme (the only theme so far).
+
 ## Shape
 
 - One binary: `hold-court serve` opens a local web UI. No daemon ceremony.
