@@ -1,5 +1,7 @@
 # Hold Court
 
+[![CI](https://github.com/quad341/hold-court/actions/workflows/ci.yml/badge.svg)](https://github.com/quad341/hold-court/actions/workflows/ci.yml) [![Go version](https://img.shields.io/github/go-mod/go-version/quad341/hold-court)](go.mod) [![Go Reference](https://pkg.go.dev/badge/github.com/quad341/hold-court.svg)](https://pkg.go.dev/github.com/quad341/hold-court) [![License](https://img.shields.io/github/license/quad341/hold-court)](LICENSE)
+
 A decision bench for maintainers. When an automated review pipeline holds a PR
 for a human — an ambiguity worth a ruling, a policy call, a guard nobody should
 relax silently — those holds pile up in mail nobody reads. Hold Court turns
