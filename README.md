@@ -31,7 +31,7 @@ Open a hold with `Enter`, rule with `p` / `c` / `x` / `d`, annotate with `i`, sa
 
 ![Keyboard cheatsheet overlay](docs/images/keys.png)
 
-Synthetic feed data; light theme (the only theme so far).
+Synthetic feed data; shown in light theme. Dark follows your system's `prefers-color-scheme` automatically.
 
 ## Shape
 
