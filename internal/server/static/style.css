@@ -6,19 +6,57 @@
 	--bg-selected: rgba(37, 99, 235, 0.15);
 }
 
+@media (prefers-color-scheme: dark) {
+	:root {
+		--border: #555;
+		--accent: #60a5fa;
+		--pending: #d97706;
+		--bg-selected: rgba(96, 165, 250, 0.18);
+	}
+}
+
 * { box-sizing: border-box; }
 
 html, body {
 	margin: 0;
 	height: 100%;
+	background: Canvas;
+	color: CanvasText;
 	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 	font-size: 14px;
+}
+
+body {
+	display: flex;
+	flex-direction: column;
+}
+
+#app-header {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: baseline;
+	gap: 0.75rem;
+	padding: 0.5rem 0.75rem;
+	border-bottom: 1px solid var(--border);
+}
+
+#app-header .brand {
+	font-weight: 700;
+}
+
+#app-header .tagline {
+	opacity: 0.6;
+	font-size: 0.85em;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 #app {
 	display: grid;
 	grid-template-columns: 180px 320px 1fr;
-	height: 100vh;
+	flex: 1 1 auto;
+	min-height: 0;
 }
 
 #pane-folders, #pane-list, #pane-reading {
@@ -36,7 +74,8 @@ html, body {
 }
 
 #pane-folders li, #pane-list li {
-	padding: 0.35rem 0.4rem;
+	padding: 0.5rem 0.6rem;
+	line-height: 1.3;
 	cursor: pointer;
 	white-space: nowrap;
 	overflow: hidden;
@@ -80,7 +119,37 @@ html, body {
 	margin-top: 1rem;
 }
 
-#ruling-bar button.active { outline: 2px solid var(--accent); }
+#ruling-bar button {
+	font: inherit;
+	padding: 0.4rem 0.85rem;
+	margin: 0 0.3rem 0.3rem 0;
+	border: 1px solid var(--border);
+	border-radius: 5px;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+}
+
+#ruling-bar button:hover { background: var(--bg-selected); }
+#ruling-bar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+#ruling-bar button.active {
+	background: var(--accent);
+	border-color: var(--accent);
+	color: #fff;
+}
+
+#ruling-bar button[data-action="close"] { border-color: var(--pending); }
+#ruling-bar button[data-action="close"].active { background: var(--pending); border-color: var(--pending); }
+
+#ruling-bar #save-btn {
+	display: block;
+	font-weight: 700;
+	border-color: var(--accent);
+	color: var(--accent);
+	margin-top: 0.5rem;
+}
+#ruling-bar #save-btn:hover { background: var(--bg-selected); }
 
 #note-input, #filter-input {
 	width: 100%;
