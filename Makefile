@@ -1,11 +1,12 @@
 .DEFAULT_GOAL := help
 
 GO ?= go
+PYTHON ?= python3
 GOLANGCI_LINT ?= golangci-lint
 GOLANGCI_LINT_VERSION := v2.13.2
 ARGS ?=
 
-.PHONY: help run build install test test-race vet fmt fmt-check lint tools check clean
+.PHONY: help run build install test test-race test-browser vet fmt fmt-check lint tools check clean
 
 help:
 	@printf '%s\n' \
@@ -14,6 +15,7 @@ help:
 	  'make install    Install hold-court into GOBIN or GOPATH/bin' \
 	  'make test       Run Go tests' \
 	  'make test-race  Run Go tests with the race detector (requires a C compiler)' \
+	  'make test-browser Run live UI regression checks (requires Python Playwright)' \
 	  'make vet        Run go vet' \
 	  'make fmt        Format Go source' \
 	  'make fmt-check  Check Go formatting without changing files' \
@@ -36,6 +38,9 @@ test:
 
 test-race:
 	$(GO) test -race ./...
+
+test-browser: build
+	$(PYTHON) tests/browser_live.py
 
 vet:
 	$(GO) vet ./...

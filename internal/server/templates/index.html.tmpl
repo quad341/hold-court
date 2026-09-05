@@ -11,7 +11,10 @@
 <header id="app-header">
 	<span class="brand">Hold Court</span>
 	<span class="tagline">Reads like email. Rules like a bench.</span>
+	<span id="live-status" role="status">Connecting to live updates…</span>
+	<button id="activity-button" type="button">Updates (0)</button>
 </header>
+<div id="notice" role="status" hidden></div>
 <div id="app">
 	<nav id="pane-folders">
 		<ul>
@@ -36,9 +39,9 @@
 		<p><a href="{{.URL}}" target="_blank" rel="noopener">{{.Repo}} #{{.PR}}</a> &middot; {{.State}}</p>
 		<div class="review-body">{{.ReviewHTML}}</div>
 		<div id="ruling-bar">
-			<button type="button" data-action="proceed">p: proceed</button>
-			<button type="button" data-action="changes">c: changes</button>
-			<button type="button" data-action="close">x: close</button>
+			<button type="button" data-action="proceed">p: Accept recommendation</button>
+			<button type="button" data-action="changes">c: Request author changes</button>
+			<button type="button" data-action="close">x: Close PR</button>
 			<button type="button" data-action="discuss">d: discuss</button>
 			<div><textarea id="note-input" rows="2" placeholder="annotate (i)"></textarea></div>
 			<button type="button" id="save-btn">s: save pending rulings</button>
@@ -61,6 +64,7 @@
 </div>
 <script id="holds-data" type="application/json">{{.HoldsJSON}}</script>
 <script id="folders-data" type="application/json">{{.FoldersJSON}}</script>
+<script id="mode-data" type="application/json">{"record_only":{{.RecordOnly}}}</script>
 <script src="/static/app.js"></script>
 </body>
 </html>

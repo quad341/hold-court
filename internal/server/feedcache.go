@@ -68,7 +68,8 @@ func (c *feedCache) snapshot() ([]*feed.Hold, error) {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.holds, c.err
+	// Callers sort their snapshot; never expose the shared slice for mutation.
+	return append([]*feed.Hold(nil), c.holds...), c.err
 }
 
 // watch attaches an fsnotify watch on the cache's directory and marks the
