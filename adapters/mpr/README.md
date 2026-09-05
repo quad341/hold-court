@@ -3,13 +3,15 @@
 From the checkout, on a Linux machine with user systemd:
 
 ```sh
-make connect-mpr CITY=../gc-management TARGET=mayor
+make connect-mpr CITY=/path/to/your/city TARGET=mayor
 make run
 ```
 
 Requires Python 3.11+, `bd`, `gc`, authenticated `gh`, MPR artifacts under
-`CITY/.gc/maintainer-pr-review`, and an active Gas City target. This initial
-adapter targets the management city's HQ database with the `gm` issue prefix.
+`CITY/.gc/maintainer-pr-review`, and an active Gas City target. `CITY` is your Gas City root directory, containing `.gc` and the HQ Beads
+database; its directory name is arbitrary. Setup discovers the issue prefix
+from that database. `TARGET` is the agent/session target in that city (default
+`mayor`); choose one configured in your city.
 Run it under the same account/environment as that city. Repository scope is
 reused from an existing exporter config or discovered from notice metadata.
 To specify scope explicitly, use the installer's `--repo owner/repo` options.
@@ -46,7 +48,10 @@ journalctl --user -u hold-court-mpr-worker.service -n 50
 
 The status shown by Hold Court includes the Beads task ID. Task comments and
 notes become conversation messages. The agent sets metadata
-`holdcourt.outcome` to `reply_ready`, `executed`, `needs_decision`, or `failed`.
+`holdcourt.outcome` to `reply_ready`, `executed`, `needs_clarification`,
+`needs_decision`, or `failed`. Unclear intent pauses external actions and
+returns a focused question in the conversation; original annotations and intent
+remain intact. The agent reports its interpretation and actual outgoing wording.
 Closing a task without that outcome is shown as needing your decision.
 A worker error remains visible and is retried. Queue entries are retained for
 history and reply correlation; do not remove them while tasks are active.

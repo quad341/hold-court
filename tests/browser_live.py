@@ -127,6 +127,22 @@ with tempfile.TemporaryDirectory(prefix='hold-court-live-test-') as tmp:
             expect(page.locator('#show-update')).to_be_visible(timeout=15000)
             page.locator('#show-update').click()
             expect(page.locator('#reading-tab')).to_contain_text('Here is the reasoning you requested.')
+            # Blank annotations are valid agent input, including Close.
+            page.locator('#note-input').fill('')
+            page.locator('[data-action="close"]').click()
+            page.locator('#save-btn').click()
+            expect(page.locator('#latest-status')).to_contain_text('queued')
+            saved = json.loads((rulings/'example-42-head.json').read_text())
+            assert saved['action'] == 'close' and saved['note'] == ''
+            assert 'Annotations for the agent' in confirmations[-1]
+            with page.expect_response(lambda response: '/api/holds' in response.url and response.status == 200
+                                      and any((h.get('result') or {}).get('status') == 'needs_clarification'
+                                              for h in response.json().get('holds', [])), timeout=15000):
+                write_json(rulings/'example-42-head.result.json', {'ruling_id':saved['id'], 'status':'needs_clarification', 'summary':'What is the reason to close?'})
+            expect(page.locator('#show-update')).to_be_visible(timeout=15000)
+            page.locator('#show-update').click()
+            expect(page.locator('#latest-status')).to_contain_text('needs clarification')
+            expect(page.locator('#reading-tab')).to_contain_text('close')
             for index in range(8):
                 write_json(feed / f'more-{index}.json', dict(hold, id=f'more-{index}', pr=100+index,
                            title=f'Additional hold {index}', held_at='2026-09-03T12:00:00Z'))

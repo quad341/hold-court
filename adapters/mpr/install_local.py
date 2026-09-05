@@ -11,8 +11,8 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--city', type=Path, required=True)
-parser.add_argument('--target', default='mayor')
+parser.add_argument('--city', type=Path, required=True, help='Gas City root directory containing .gc and the HQ Beads database')
+parser.add_argument('--target', default='mayor', help='Agent/session target within that city (default: mayor)')
 parser.add_argument('--repo', action='append', default=[])
 args = parser.parse_args()
 city = args.city.resolve(strict=True)
@@ -25,6 +25,13 @@ tools = {}
 for name in ['bd', 'gc', 'gh', 'systemctl']:
     tools[name] = shutil.which(name)
     if not tools[name]: parser.error(f'{name} is required')
+# Discover the selected city's database namespace before any installation writes.
+prefix_result = subprocess.run([tools['bd'], 'config', 'get', 'issue_prefix', '--json'],
+                               cwd=city, capture_output=True, text=True, check=True,
+                               env={**os.environ, 'GC_CITY_ROOT': str(city)})
+issue_prefix = json.loads(prefix_result.stdout).get('value')
+if not isinstance(issue_prefix, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', issue_prefix):
+    parser.error('The selected city must have a valid Beads issue_prefix')
 base = Path(os.environ.get('XDG_DATA_HOME', Path.home()/'.local/share')) / 'hold-court/mpr'
 base.mkdir(parents=True, exist_ok=True)
 repos = set(args.repo)
@@ -42,7 +49,7 @@ for name in ['export.py', 'consumer.py']:
     shutil.copyfile(ROOT/'adapters/mpr'/name, base/name)
 config = dict(artifact_root=str(artifacts), repos=sorted(repos), feed=str(base/'feed'),
               status=str(base/'status.json'), execution='agent-handoff')
-consumer = dict(repos=sorted(repos), city_root=str(city), target=args.target,
+consumer = dict(repos=sorted(repos), city_root=str(city), target=args.target, issue_prefix=issue_prefix,
                 feed=str(base/'feed'), rulings=str(base/'rulings'), spool=str(base/'requests'),
                 **{name:tools[name] for name in ['bd','gc','gh']})
 for name, content in [('config.json',config),('consumer.json',consumer)]:
@@ -62,7 +69,7 @@ for name, command, interval in [
 subprocess.run([tools['systemctl'],'--user','daemon-reload'],check=True)
 subprocess.run([tools['systemctl'],'--user','enable','--now','hold-court-mpr-feed.timer','hold-court-mpr-worker.timer'],check=True)
 hook = [sys.executable,str(base/'consumer.py'),'enqueue','--config',str(base/'consumer.json')]
-description = f'Saving sends a task to {args.target}. Discuss requests analysis and a reply here. Other choices authorize the specified PR action on the reviewed head; messages use your exact note.'
+description = f'Saving sends a task to {args.target}. Discuss requests analysis and a reply here. Other choices authorize the specified PR action on the reviewed head; your annotations guide the agent, which writes appropriate messages and asks here when intent is unclear. Verbatim wording is used only when you explicitly request it.'
 text = '\n'.join([f'feed = {json.dumps(config["feed"])}',f'rulings = {json.dumps(consumer["rulings"])}',
                   f'on_ruling = {json.dumps(hook)}',f'consumer_description = {json.dumps(description)}',''])
 configuration = ROOT/'holdcourt.toml'

@@ -7,10 +7,26 @@ Gas City tasks and brings their acknowledgement and replies back here.
 | Choice | Authorized behavior | Required input |
 | --- | --- | --- |
 | Accept recommendation (`proceed`) | Inspect the prepared review for the held commit and resume the recorded MPR disposition through existing checks. `fix-merge` requires fixes and verification first. Report ambiguity instead of guessing a continuation. | Confirmation naming the PR, held commit, and verdict. |
-| Request author changes (`changes`) | Post a request-changes review using the exact approved note and repository maintainer workflow. Report self-review or policy blockers. | Exact review text and confirmation. |
-| Close PR (`close`) | Close with the exact approved explanation through the repository maintainer workflow. | Exact closing message and confirmation. |
-| Discuss (`discuss`) | Investigate the question and reply in the local conversation. No GitHub comment, hold clearance, or merge is authorized. Use this to ask for revisions to our preparation too. | Question/instructions and confirmation. |
+| Request author changes (`changes`) | Compose and post a request-changes review from the operator intent, annotations, and review context using the repository maintainer workflow. Report self-review or policy blockers. | Confirmation; annotations optional. |
+| Close PR (`close`) | Establish the rationale from context and compose an appropriate closing explanation. If unclear, ask before closing. | Confirmation; annotations optional. |
+| Discuss (`discuss`) | Investigate the question and reply in the local conversation. No GitHub comment, hold clearance, or merge is authorized. Use this to ask for revisions to our preparation too. | Confirmation; question/instructions optional. |
 | Clear choice | Remove an unsaved selection, retaining the note. No task is sent. | None. |
+
+Rulings express intent. Annotations are instructions to an agent, not final
+correspondence. The agent improves grammar, tone, and clarity without requiring
+another approval round for ordinary wording. Verbatim delivery requires an
+explicit operator instruction. The agent must preserve meaning, avoid invented
+rationales, and return to discussion rather than silently choose a different
+consequential action.
+
+Missing notes are valid. For example, Close with no note asks the agent to
+establish the reason from the review and conversation. If that context is
+insufficient, it posts its interpretation and a focused question, reports
+`needs_clarification`, and takes no external action until answered. This
+transition preserves the original Close ruling and annotations in history.
+Answer through Discuss, or submit a clarified ruling when ready to authorize
+execution. The agent reads prior decisions and replies and records its
+interpretation, actual outgoing wording, and outcome in the conversation.
 
 Save validates a content revision and generates a stable request ID. Retrying
 the same request reuses its queue entry and task identity. Existing trial
@@ -33,6 +49,8 @@ The worker observes the task and publishes these states:
 - **Queued**: saved, awaiting dispatch or agent acknowledgement.
 - **In progress**: the agent claimed the task.
 - **Reply ready**: the agent explicitly reports a completed discussion reply.
+- **Needs clarification**: intent is unclear; execution is paused and a focused
+  question awaits an operator reply in History & discussion.
 - **Needs decision**: the agent needs input, the PR head changed, or a task was
   closed without an explicit outcome.
 - **Executed**: the agent reports the authorized action completed.

@@ -170,7 +170,7 @@
 			'<p class="execution-mode">' + (recordOnly ? 'Record-only: saving does not send anything to MPR, an agent, or GitHub.' : escapeHTML(consumerDescription || 'Consumer configured: saving invokes the configured hook. Its policy determines external actions.')) + '</p>' +
 			actionHelp() + rulingButtons(hold) +
 			'<button type="button" id="clear-ruling">Clear choice</button>' +
-			'<div><textarea id="note-input" rows="2" placeholder="annotate (i)">' +
+			'<div><textarea id="note-input" rows="2" placeholder="Instructions or context for the agent (optional; i)">' +
 			escapeHTML(note) +
 			"</textarea></div>" +
 			'<button type="button" id="save-btn">s: save pending rulings</button>' +
@@ -216,9 +216,9 @@
 	function actionHelp() {
 		return '<details class="action-help"><summary>What do these decisions mean?</summary><dl>' +
 			'<dt>Accept recommendation (proceed)</dt><dd>Record agreement with the prepared recommendation. This does not itself mean “merge” or “publish”; the consumer must define that policy.</dd>' +
-			'<dt>Request author changes</dt><dd>Record a request for PR changes. Revising our prepared review is a different workflow and is not implemented yet.</dd>' +
-			'<dt>Close</dt><dd>Record a close decision and your rationale. No closing message is generated.</dd>' +
-			'<dt>Discuss</dt><dd>Ask the configured consumer to investigate your note and reply in History &amp; discussion. In record-only mode, the question stays local.</dd>' +
+			'<dt>Request author changes</dt><dd>Ask the agent to request author changes, using your annotations and the review to compose the message. Use Discuss to revisit our own preparation.</dd>' +
+			'<dt>Close</dt><dd>Ask the agent to close the PR with an appropriate explanation. If the rationale is unclear, it returns a clarification question before acting.</dd>' +
+			'<dt>Discuss</dt><dd>Ask the configured agent to investigate or revise our preparation and reply in History &amp; discussion. In record-only mode, the question stays local.</dd>' +
 			'</dl></details>';
 	}
 
@@ -329,12 +329,9 @@
 		});
 		if (!items.length) return;
 		if (!recordOnly) {
-			if (items.some(function (item) { return item.action !== 'proceed' && !item.note.trim(); })) {
-				notice('Add a note for discuss, author changes, or closing. The note is the exact message/instruction sent.'); return;
-			}
 			var preview = items.map(function (item) {
 				var hold = byID[item.hold_id];
-				return item.action.toUpperCase() + ': ' + hold.repo + ' #' + hold.pr + '\nHead: ' + hold.head_sha + '\nMPR recommendation: ' + (hold.verdict || 'unspecified') + '\n' + item.note;
+				return item.action.toUpperCase() + ': ' + hold.repo + ' #' + hold.pr + '\nHead: ' + hold.head_sha + '\nMPR recommendation: ' + (hold.verdict || 'unspecified') + '\nAnnotations for the agent: ' + (item.note || '(none; use context or ask for clarification)');
 			}).join('\n\n');
 			if (!window.confirm((consumerDescription || 'Send to the configured consumer?') + '\n\n' + preview + '\n\nSend these decisions?')) return;
 		}

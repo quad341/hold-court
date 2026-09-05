@@ -16,7 +16,7 @@ class ConsumerTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.config = {key:str(self.root / key) for key in ['spool','rulings','feed','city_root']}
-        self.config.update(repos=['owner/repo'], target='mayor', bd='bd', gc='gc', gh='gh')
+        self.config.update(repos=['owner/repo'], target='mayor', issue_prefix='town', bd='bd', gc='gc', gh='gh')
         self.request = dict(id='a'*64, hold_id='test-hold', repo='owner/repo', pr=42,
                             head_sha='b'*40, action='discuss', note='Why is this held?',
                             ruled_by='operator', ruled_at='2026-09-05T12:00:00Z')
@@ -47,8 +47,8 @@ class ConsumerTests(unittest.TestCase):
     def result(self):
         return consumer.read(Path(self.config['rulings']) / 'test-hold.result.json')
 
-    def test_legacy_and_empty_questions_rejected(self):
-        for request in [dict(self.request,id=''),dict(self.request,note=' '),dict(self.request,repo='wrong/repo')]:
+    def test_legacy_and_wrong_repository_rejected(self):
+        for request in [dict(self.request,id=''),dict(self.request,repo='wrong/repo')]:
             with self.assertRaises(ValueError): consumer.enqueue(self.config,request)
         self.assertEqual(self.calls,[])
 
@@ -71,6 +71,23 @@ class ConsumerTests(unittest.TestCase):
         description=next(body for args,body in self.calls if args[:2]==['bd','create'])
         self.assertIn('analysis only',description)
         self.assertIn(self.request['head_sha'],description)
+
+    def test_empty_close_returns_clarification_and_preserves_intent(self):
+        self.request.update(action='close', note='')
+        consumer.atomic(self.ruling, self.request)
+        consumer.enqueue(self.config, self.request)
+        consumer.sync_job(self.config, self.path(), self.fake_run)
+        create = next((args, body) for args, body in self.calls if args[:2] == ['bd', 'create'])
+        self.assertEqual(create[0][create[0].index('--id')+1], 'town-hc-' + self.request['id'][:24])
+        self.assertIn('Deliver text verbatim only when the operator explicitly asks', create[1])
+        self.assertIn('pause execution and return to discussion', create[1])
+        self.comments = [{'id':1, 'text':'What is the reason to close?', 'author':'mayor', 'created_at':'2026-09-05T12:02:00Z'}]
+        self.bead.update(metadata={'holdcourt.outcome':'needs_clarification'})
+        consumer.sync_job(self.config, self.path(), self.fake_run)
+        self.assertEqual(self.result()['status'], 'needs_clarification')
+        self.assertEqual(self.result()['thread'][0]['body'], 'What is the reason to close?')
+        self.assertEqual(consumer.read(self.ruling), self.request)
+        self.assertEqual(consumer.read(self.path())['request']['action'], 'close')
 
     def test_stale_head_never_dispatches(self):
         consumer.enqueue(self.config,self.request)

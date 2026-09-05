@@ -503,10 +503,6 @@ func (s *server) handleSaveRulings(w http.ResponseWriter, r *http.Request) {
 		current[view.ID] = view
 	}
 	for _, item := range reqs {
-		if len(s.cfg.OnRuling) > 0 && item.Action != "proceed" && strings.TrimSpace(item.Note) == "" {
-			results = append(results, rulingResponse{HoldID: item.HoldID, Error: "A note is required for this action. It is the exact message/instruction sent to the consumer."})
-			continue
-		}
 		view, found := current[item.HoldID]
 		if !found || view.State == "stood-down" || view.ResolvedReason != "" {
 			results = append(results, rulingResponse{HoldID: item.HoldID, Error: "Hold is no longer actionable; open a current hold."})

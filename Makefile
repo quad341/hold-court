@@ -2,7 +2,7 @@
 
 GO ?= go
 PYTHON ?= python3
-CITY ?= ../gc-management
+CITY ?=
 TARGET ?= mayor
 GOLANGCI_LINT ?= golangci-lint
 GOLANGCI_LINT_VERSION := v2.13.2
@@ -50,6 +50,7 @@ test-adapters:
 	$(PYTHON) -m unittest discover -s adapters/mpr -p 'test_*.py'
 
 connect-mpr:
+	@test -n "$(CITY)" || { echo "Set CITY to your Gas City root: make connect-mpr CITY=/path/to/city TARGET=mayor"; exit 1; }
 	$(PYTHON) adapters/mpr/install_local.py --city "$(CITY)" --target "$(TARGET)"
 
 vet:

@@ -57,9 +57,13 @@ launch with `make run`; consumers receive each ruling as JSON on stdin.
 To connect this checkout to the local MPR/Gas City workflow on Linux:
 
 ```sh
-make connect-mpr CITY=../gc-management TARGET=mayor
+make connect-mpr CITY=/path/to/your/city TARGET=mayor
 make run
 ```
+
+`CITY` is the Gas City root containing `.gc` and its HQ Beads database, not
+a particular repository name. It is required; setup discovers its issue prefix.
+`TARGET` names the receiving agent/session in that city (default: `mayor`).
 
 This is an **opt-in execution connection**: newly confirmed decisions enqueue
 agent tasks. Existing trial rulings are never replayed. It installs user timers
@@ -133,10 +137,14 @@ Agent acknowledgement, replies, and review changes do.
 
 Without an `on_ruling` hook, the app explicitly runs in **record-only** mode:
 actions save local decisions only. With the MPR connection, Save previews the
-PR, reviewed head, action, and exact note before sending. **Discuss** requests
+PR, reviewed head, intended action, and annotations before sending. **Discuss** requests
 analysis and a reply here. **Accept recommendation** authorizes continuation of
 the recorded MPR verdict through its checks; it is not an unconditional merge.
-**Request author changes** and **Close PR** require your exact outgoing message.
+**Request author changes** and **Close PR** ask the agent to compose appropriate
+messages from your intent, annotations, and review context. Notes are optional
+instructions, not publication-ready text. The agent improves wording and tone;
+verbatim delivery requires an explicit instruction. Unclear intent returns as
+**Needs clarification**, with a question and the original ruling preserved.
 See the [decision contract](docs/mpr-decision-flow.md) for execution and status
 semantics. The MPR exporter excludes requests to split oversized PRs from the
 human inbox while retaining their source artifacts.
