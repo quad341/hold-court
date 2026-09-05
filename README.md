@@ -54,6 +54,19 @@ rulings = "/path/to/rulings"
 Explicit command-line flags override the configuration file. Continue to
 launch with `make run`; consumers receive each ruling as JSON on stdin.
 
+To connect this checkout to the local MPR/Gas City workflow on Linux:
+
+```sh
+make connect-mpr CITY=../gc-management TARGET=mayor
+make run
+```
+
+This is an **opt-in execution connection**: newly confirmed decisions enqueue
+agent tasks. Existing trial rulings are never replayed. It installs user timers
+for feed export and task/reply synchronization. Requires Python 3.11+, systemd,
+`bd`, `gc`, authenticated `gh`, and an active target in the city's HQ database.
+See [MPR setup and operation](adapters/mpr/README.md) before enabling it.
+
 ## Common tasks
 
 Run `make` or `make help` to list the available commands.
@@ -63,6 +76,8 @@ Run `make` or `make help` to list the available commands.
 | `make run` | Start the local web UI |
 | `make build` | Build the `./hold-court` binary |
 | `make install` | Install the binary into `GOBIN`, or `GOPATH/bin` by default |
+| `make connect-mpr` | Enable MPR export and confirmed agent handoffs (`CITY=... TARGET=...`) |
+| `make test-adapters` | Test export and handoff using isolated fixtures |
 | `make test` | Run all Go tests |
 | `make test-race` | Run tests with the race detector |
 | `make test-browser` | Run browser regressions (requires Python Playwright and its Chromium browser) |
@@ -71,12 +86,12 @@ Run `make` or `make help` to list the available commands.
 | `make fmt-check` | Check formatting without modifying source |
 | `make tools` | Install the same golangci-lint version used by CI |
 | `make lint` | Run golangci-lint |
-| `make check` | Build, check formatting, vet, race-test, and lint |
+| `make check` | Build, check formatting, vet, race-test, lint, and test adapters |
 | `make clean` | Remove the built binary; keep feeds, rulings, and database |
 
 For development, run `make tools` once and ensure your Go binary installation
 directory (`GOBIN`, or `GOPATH/bin`) is on `PATH`. Then `make check` runs the
-checks used by CI. Race tests require cgo enabled and a C compiler; ordinary
+checks used by CI, including Python adapter tests. Race tests require cgo enabled and a C compiler; ordinary
 builds and `make test` do not require cgo. You can override tool commands with
 `GO` and `GOLANGCI_LINT`, for example `make lint GOLANGCI_LINT=/path/to/golangci-lint`.
 
@@ -102,13 +117,29 @@ become unread when their review or result changes. Reading the new revision
 acknowledges it. Pending decisions and notes are backed up in this browser's
 local storage for this server URL. Save failures remain visible and keep drafts.
 
-Without an `on_ruling` hook, the app explicitly runs in **record-only** mode.
-It displays the saved action, note, and any consumer result. The existing action
-codes do not define an MPR execution policy: there is no automatic merge,
-generated closing message, or connected agent conversation. See the
-[proposed MPR decision contract](docs/mpr-decision-flow.md) for the distinction
-between accepting a recommendation, revising our review, requesting author
-changes, closing a PR, and discussing a hold.
+Drag the thick dividers to resize the folders and list; focused dividers also
+support arrow keys and Home to reset. Sizes persist in this browser. The action
+area stays at the bottom while review text scrolls above it. Clicking the selected
+action again, **Clear choice**, or Escape outside the note removes an unsaved
+choice and keeps your note. This sends nothing; it does not cancel an already
+submitted task.
+
+**History & discussion** separates the conversation from the current review.
+It retains observed review versions, decisions, results, and replies with times.
+Versions expand to show their original text; there is no automatic diff yet.
+History starts when this server observes a hold; it cannot recover previously
+overwritten source files. Your own saves do not count as incoming activity.
+Agent acknowledgement, replies, and review changes do.
+
+Without an `on_ruling` hook, the app explicitly runs in **record-only** mode:
+actions save local decisions only. With the MPR connection, Save previews the
+PR, reviewed head, action, and exact note before sending. **Discuss** requests
+analysis and a reply here. **Accept recommendation** authorizes continuation of
+the recorded MPR verdict through its checks; it is not an unconditional merge.
+**Request author changes** and **Close PR** require your exact outgoing message.
+See the [decision contract](docs/mpr-decision-flow.md) for execution and status
+semantics. The MPR exporter excludes requests to split oversized PRs from the
+human inbox while retaining their source artifacts.
 
 ## Screenshots
 

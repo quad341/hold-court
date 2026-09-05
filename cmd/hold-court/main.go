@@ -29,9 +29,10 @@ const configFileName = "holdcourt.toml"
 // a CLI flag so a hook's argv can hold arguments with spaces without any
 // shell-quoting hack.
 type fileConfig struct {
-	Feed     string   `toml:"feed"`
-	Rulings  string   `toml:"rulings"`
-	OnRuling []string `toml:"on_ruling"`
+	Feed                string   `toml:"feed"`
+	Rulings             string   `toml:"rulings"`
+	OnRuling            []string `toml:"on_ruling"`
+	ConsumerDescription string   `toml:"consumer_description"`
 }
 
 func main() {
@@ -84,11 +85,12 @@ func serve(args []string) error {
 	}()
 
 	handler, err := server.New(server.Config{
-		FeedDir:    *feedDir,
-		RulingsDir: *rulingsDir,
-		Store:      st,
-		OnRuling:   fc.OnRuling,
-		User:       *user,
+		FeedDir:             *feedDir,
+		RulingsDir:          *rulingsDir,
+		Store:               st,
+		OnRuling:            fc.OnRuling,
+		ConsumerDescription: fc.ConsumerDescription,
+		User:                *user,
 	})
 	if err != nil {
 		return fmt.Errorf("build server: %w", err)

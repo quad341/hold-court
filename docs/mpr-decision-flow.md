@@ -1,43 +1,54 @@
-# Proposed MPR decision contract
+# MPR decision contract
 
-This is the contract proposed from the first real-data trial. It describes
-consumer and discussion work that is not connected yet. Hold Court currently
-records action codes and notes; it runs an optional operator-configured hook.
-None of the behavior below is implied by an action code alone.
+The default configuration records decisions locally. The optional
+[MPR adapter](../adapters/mpr/README.md) turns newly confirmed decisions into
+Gas City tasks and brings their acknowledgement and replies back here.
 
-| Intent | Proposed behavior | Maintainer input |
+| Choice | Authorized behavior | Required input |
 | --- | --- | --- |
-| Accept MPR recommendation | Publish the prepared review for the held commit and resume MPR's recorded disposition. `fix-merge` means perform and verify the fixes first; `auto-merge` means proceed through the existing merge gates. | Show the actual verdict and review being accepted before saving. |
-| Revise our review or fix plan | Ask an agent to revise the preparation and return it for another maintainer decision. This does not request changes from the contributor. | Required instructions describing what to revisit. |
-| Request changes from the author | Publish a maintainer-approved request-changes review. This is distinct from revising our own preparation. | Show the exact proposed review text, allow edits, then confirm sending. |
-| Close the PR | Close with a maintainer-approved explanation. An agent may draft the explanation from the review and note, but cannot silently invent and send it. | Show the exact closing message, allow edits, then confirm closing. |
-| Discuss | Append a question to the hold's local conversation and route it to an agent. A reply supplies information and returns the decision to the maintainer; it does not authorize execution. | Required question or annotation. |
+| Accept recommendation (`proceed`) | Inspect the prepared review for the held commit and resume the recorded MPR disposition through existing checks. `fix-merge` requires fixes and verification first. Report ambiguity instead of guessing a continuation. | Confirmation naming the PR, held commit, and verdict. |
+| Request author changes (`changes`) | Post a request-changes review using the exact approved note and repository maintainer workflow. Report self-review or policy blockers. | Exact review text and confirmation. |
+| Close PR (`close`) | Close with the exact approved explanation through the repository maintainer workflow. | Exact closing message and confirmation. |
+| Discuss (`discuss`) | Investigate the question and reply in the local conversation. No GitHub comment, hold clearance, or merge is authorized. Use this to ask for revisions to our preparation too. | Question/instructions and confirmation. |
+| Clear choice | Remove an unsaved selection, retaining the note. No task is sent. | None. |
 
-Accepting a recommendation must name what is being accepted. A generic
-“Proceed” label obscures whether the prepared verdict asks for fixes, merging,
-or another disposition. The consumer must recheck the current PR head and
-standing hold before any action. A stale review cannot authorize a new commit.
-The existing `changes` code means requesting PR changes; repurposing it for
-revising our review would reinterpret saved decisions, so revision needs a
-separate action or an explicitly versioned contract.
+Save validates a content revision and generates a stable request ID. Retrying
+the same request reuses its queue entry and task identity. Existing trial
+rulings are not scanned for dispatch. Before routing, the worker checks that the
+PR remains open at the held head and that the decision has not been superseded.
+The agent is also instructed to repeat those checks before any external
+mutation. Clearing a draft does not revoke a submitted task. A newer submitted
+decision supersedes the previous one, but cannot undo work already performed.
+
+The consumer creates a scoped agent task, rather than directly implementing
+GitHub operations. The agent must follow repository policy and provide evidence
+of the requested outcome. A successful MPR `clear-hold` exit alone is not proof
+of publication or merge: notice-only holds can produce a no-op. Execution
+status is agent-reported; the adapter does not independently verify each effect.
 
 ## Discussion and activity
 
-The conversation needs a durable, append-only record of maintainer notes and
-agent replies, with author, time, message identity, and the hold/review revision
-each message addresses. The maintainer should see the dispatch lifecycle:
+The worker observes the task and publishes these states:
 
-1. **Queued**: the message is saved and awaits an agent.
-2. **In progress**: an agent has acknowledged the message.
-3. **Reply ready**: the agent has posted a response in the same thread.
-4. **Needs your decision**: the hold is back with the maintainer.
+- **Queued**: saved, awaiting dispatch or agent acknowledgement.
+- **In progress**: the agent claimed the task.
+- **Reply ready**: the agent explicitly reports a completed discussion reply.
+- **Needs decision**: the agent needs input, the PR head changed, or a task was
+  closed without an explicit outcome.
+- **Executed**: the agent reports the authorized action completed.
+- **Failed**: dispatch/synchronization failed, or the agent reports failure.
+  Transport failures are retried and remain visible.
 
-Failure to dispatch is a visible failure, not “In progress.” Retrying a message
-must not create a second job. Reading a reply does not acknowledge replies that
-arrive afterward. New replies belong in the Updates view and should make the
-hold unread, with a specific Reply ready label rather than bold text alone.
-Arrival must preserve the hold currently being read and the note being typed.
+Replies come from task comments, notes, and closing explanations. They retain
+message identity, author, and time. Late replies to an older decision remain in
+the conversation without overwriting a newer decision's status. Reading a
+reply does not acknowledge a later reply. Saving a question is not itself an
+incoming update.
 
-The live UI already signals review/result changes and preserves drafts. The
-thread model, delivery acknowledgements, action previews, and agent consumer
-remain separate implementation work tracked in Beads.
+The browser polls every five seconds. Review changes, acknowledgement, and
+replies appear in Updates without replacing the review or note being read.
+Choose Show update, then History & discussion to read the conversation or
+expand previously observed review versions. History is an observation log in
+SQLite; it starts when this server sees each revision and cannot recover
+intermediate versions written while the server was offline. It displays full
+historical text, not computed diffs.
