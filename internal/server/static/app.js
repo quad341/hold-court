@@ -4,6 +4,7 @@
 	var holds = JSON.parse(document.getElementById("holds-data").textContent);
 	var folders = JSON.parse(document.getElementById("folders-data").textContent);
 	var recordOnly = JSON.parse(document.getElementById("mode-data").textContent).record_only;
+	var consumerDescription = document.getElementById('consumer-description').textContent;
 	var byID = {};
 	holds.forEach(function (h) { byID[h.id] = h; });
 
@@ -32,6 +33,8 @@
 	var liveEl = document.getElementById("live-status");
 	var activityEl = document.getElementById("activity-button");
 	var displayedRevision = "";
+	var displayedActivityRevision = "";
+	var readingTab = "review";
 
 	function notice(message) {
 		noticeEl.textContent = message;
@@ -115,7 +118,7 @@
 					'<li class="' + classes.join(" ") + '" data-hold-id="' + escapeHTML(h.id) + '">' +
 					dot + '<span class="hold-title">' + escapeHTML(h.title) + '</span>' +
 					'<span class="hold-meta">' + escapeHTML(h.repo) + ' #' + h.pr + ' · ' + escapeHTML(age) +
-					(state.updates[h.id] ? ' · <span class="activity-tag">Updated</span>' : '') + '</span></li>'
+					(state.updates[h.id] ? ' · <span class="activity-tag">' + (h.result && h.result.status === 'reply_ready' ? 'Reply ready' : 'Updated') + '</span>' : '') + '</span></li>'
 				);
 			})
 			.join("");
@@ -150,32 +153,64 @@
 		}
 		readingEl.dataset.holdId = hold.id;
 		displayedRevision = hold.revision;
+		displayedActivityRevision = hold.activity_revision;
 		var pending = state.pending[hold.id];
 		var note = (pending && pending.note) || state.drafts[hold.id] || "";
 		readingEl.innerHTML =
-			'<button id="show-update" type="button" hidden>New activity on this hold — show update</button>' +
+			'<div id="reading-content"><button id="show-update" type="button" hidden>New activity on this hold — show update</button>' +
 			'<h1>' + escapeHTML(hold.title) + "</h1>" +
 			'<p class="question">' + escapeHTML(hold.question) + "</p>" +
 			'<p><a href="' + escapeHTML(hold.url) + '" target="_blank" rel="noopener">' +
 			escapeHTML(hold.repo) + " #" + hold.pr + "</a> &middot; " + escapeHTML(hold.state) + "</p>" +
-			savedDetails(hold) +
-			'<div class="review-body">' + hold.review_html + "</div>" +
+			'<div id="latest-status">' + latestStatus(hold) + '</div>' +
+			'<div class="history-tabs"><button data-tab="review">Review</button><button data-tab="history">History &amp; discussion</button></div>' +
+			'<div id="reading-tab">' +
+			'<div class="review-body">' + hold.review_html + "</div></div></div>" +
 			 '<div id="ruling-bar">' +
-			'<p class="execution-mode">' + (recordOnly ? 'Record-only: saving does not send anything to MPR, an agent, or GitHub.' : 'Consumer configured: saving invokes the configured hook. Its policy determines external actions.') + '</p>' +
+			'<p class="execution-mode">' + (recordOnly ? 'Record-only: saving does not send anything to MPR, an agent, or GitHub.' : escapeHTML(consumerDescription || 'Consumer configured: saving invokes the configured hook. Its policy determines external actions.')) + '</p>' +
 			actionHelp() + rulingButtons(hold) +
+			'<button type="button" id="clear-ruling">Clear choice</button>' +
 			'<div><textarea id="note-input" rows="2" placeholder="annotate (i)">' +
 			escapeHTML(note) +
 			"</textarea></div>" +
 			'<button type="button" id="save-btn">s: save pending rulings</button>' +
 			"</div>";
+		if (readingTab === "history") showHistory();
 	}
 
-	function savedDetails(hold) {
-		var html = "";
-		if (hold.resolved_reason) html += '<p>' + escapeHTML(hold.resolved_reason) + '</p>';
-		if (hold.ruling) html += '<div class="saved-ruling"><strong>Recorded decision: ' + escapeHTML(hold.ruling.action) + '</strong><br>' + escapeHTML(hold.ruling.note || '(no note)') + '<br>' + escapeHTML(hold.ruling.ruled_at) + '</div>';
-		if (hold.result) html += '<div class="saved-ruling"><strong>Consumer reported: ' + escapeHTML(hold.result.status) + '</strong><br>' + escapeHTML(hold.result.summary || '') + '</div>';
-		return html;
+	function latestStatus(hold) {
+		if (hold.result) return '<strong>' + escapeHTML(hold.result.status.replace(/_/g, ' ')) + '</strong> — ' + escapeHTML(hold.result.summary || '') + ' <button data-tab="history">View history / replies</button>';
+		if (hold.ruling) return 'Saved: ' + escapeHTML(hold.ruling.action) + (recordOnly ? ' (local record; not dispatched)' : ' (handoff pending)');
+		return '';
+	}
+
+	function showHistory() {
+		var id = readingEl.dataset.holdId;
+		var target = document.getElementById('reading-tab');
+		if (!target) return;
+		target.innerHTML = '<p>Loading history…</p>';
+		fetch('/api/holds/' + encodeURIComponent(id) + '/history', {cache:'no-store'})
+			.then(function (response) { if (!response.ok) throw new Error('Could not load history'); return response.json(); })
+			.then(function (entries) {
+				if (readingEl.dataset.holdId !== id || readingTab !== 'history') return;
+				var messages = {};
+				entries.forEach(function (entry) {
+					var data = entry.data;
+					if (entry.kind === 'decision') messages['decision-' + entry.id] = {at:data.ruled_at, author:data.ruled_by + ' · ' + data.action, body:data.note || '(no note)'};
+					if (entry.kind === 'discussion') data.forEach(function (m) { messages[m.id] = m; });
+					if (entry.kind === 'result') (data.thread || []).forEach(function (m) { messages[m.id] = m; });
+				});
+				var conversation = Object.values(messages).sort(function (a,b) { return a.at.localeCompare(b.at); }).map(function (m) {
+					return '<article class="history-entry"><strong>' + escapeHTML(m.author) + '</strong> · ' + escapeHTML(m.at) + '<pre>' + escapeHTML(m.body) + '</pre></article>';
+				}).join('');
+				var versions = entries.map(function (entry) {
+					var data = entry.data;
+					var label = entry.kind === 'review' ? 'Review version' : entry.kind === 'decision' ? 'Decision: ' + data.action : entry.kind === 'discussion' ? 'Conversation updated' : 'Consumer: ' + data.status;
+					var body = entry.kind === 'review' ? (data.question + '\n\n' + data.review_body_md) : entry.kind === 'decision' ? data.note : entry.kind === 'discussion' ? data.map(function (m) { return m.author + ': ' + m.body; }).join('\n\n') : data.summary;
+					return '<details class="history-entry"><summary>' + escapeHTML(entry.at + ' · ' + label) + '</summary><pre>' + escapeHTML(body || '') + '</pre></details>';
+				}).join('');
+				target.innerHTML = '<h2>Conversation</h2>' + (conversation || '<p>No messages yet.</p>') + '<h2>Observed history</h2><p>Newest first. Expand a version to read it. History starts when this server first observes the hold.</p>' + versions;
+			}).catch(function (error) { if (readingEl.dataset.holdId === id && readingTab === 'history') target.textContent = error.message; });
 	}
 
 	function actionHelp() {
@@ -183,7 +218,7 @@
 			'<dt>Accept recommendation (proceed)</dt><dd>Record agreement with the prepared recommendation. This does not itself mean “merge” or “publish”; the consumer must define that policy.</dd>' +
 			'<dt>Request author changes</dt><dd>Record a request for PR changes. Revising our prepared review is a different workflow and is not implemented yet.</dd>' +
 			'<dt>Close</dt><dd>Record a close decision and your rationale. No closing message is generated.</dd>' +
-			'<dt>Discuss</dt><dd>Record your question in the note. Agent delivery, acknowledgements, and discussion threads are not connected yet.</dd>' +
+			'<dt>Discuss</dt><dd>Ask the configured consumer to investigate your note and reply in History &amp; discussion. In record-only mode, the question stays local.</dd>' +
 			'</dl></details>';
 	}
 
@@ -225,14 +260,14 @@
 	function markRead(holdID, unread) {
 		var hold = byID[holdID];
 		if (!hold) return;
-		var revision = displayedRevision;
+		var revision = displayedActivityRevision;
 		fetch("/api/holds/" + encodeURIComponent(holdID) + "/read", {
 			method: "POST", headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ unread: unread, revision: revision }),
 		}).then(function (resp) {
 			if (!resp.ok) throw new Error("Read state could not be saved");
 			hold.unread = unread;
-			if (!unread && hold.revision === revision) {
+			if (!unread && hold.activity_revision === revision) {
 				delete state.updates[holdID];
 				hold.updated = false;
 			}
@@ -254,11 +289,21 @@
 		if (hold.revision !== displayedRevision) { notice("This hold changed. Show its update before choosing a decision."); return; }
 		saveNoteDraft();
 		var note = state.drafts[hold.id] || (state.pending[hold.id] && state.pending[hold.id].note) || "";
-		state.pending[hold.id] = { action: action, note: note, revision: hold.revision };
+		if (state.pending[hold.id] && state.pending[hold.id].action === action) delete state.pending[hold.id];
+		else state.pending[hold.id] = { action: action, note: note, revision: hold.revision };
 		persistDrafts();
 		renderList();
 		renderReading();
 		renderPendingBar();
+	}
+
+	function clearPending() {
+		saveNoteDraft();
+		var hold = currentHold();
+		if (!hold) return;
+		delete state.pending[hold.id];
+		persistDrafts(); renderList(); renderReading(); renderPendingBar();
+		notice('Choice cleared. Your note is kept; nothing will be sent for this hold.');
 	}
 
 	function saveNoteDraft() {
@@ -283,6 +328,16 @@
 			return { hold_id: id, action: submitted[id].action, note: submitted[id].note || "", revision: submitted[id].revision || "" };
 		});
 		if (!items.length) return;
+		if (!recordOnly) {
+			if (items.some(function (item) { return item.action !== 'proceed' && !item.note.trim(); })) {
+				notice('Add a note for discuss, author changes, or closing. The note is the exact message/instruction sent.'); return;
+			}
+			var preview = items.map(function (item) {
+				var hold = byID[item.hold_id];
+				return item.action.toUpperCase() + ': ' + hold.repo + ' #' + hold.pr + '\nHead: ' + hold.head_sha + '\nMPR recommendation: ' + (hold.verdict || 'unspecified') + '\n' + item.note;
+			}).join('\n\n');
+			if (!window.confirm((consumerDescription || 'Send to the configured consumer?') + '\n\n' + preview + '\n\nSend these decisions?')) return;
+		}
 		state.saving = true;
 		fetch("/api/rulings", {
 			method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(items),
@@ -293,6 +348,17 @@
 			var errors = [];
 			results.forEach(function (r) {
 				if (!r.ok) { errors.push(r.error); return; }
+				if (r.hold) {
+					byID[r.hold_id] = r.hold;
+					holds = holds.map(function (h) { return h.id === r.hold_id ? r.hold : h; });
+					if (readingEl.dataset.holdId === r.hold_id) {
+						state.retained = r.hold_id;
+						displayedRevision = r.hold.revision;
+						var status = document.getElementById('latest-status');
+						if (status) status.innerHTML = latestStatus(r.hold);
+						if (readingTab === 'history') showHistory();
+					}
+				}
 				if (JSON.stringify(state.pending[r.hold_id]) === JSON.stringify(submitted[r.hold_id])) {
 					delete state.pending[r.hold_id];
 					delete state.drafts[r.hold_id];
@@ -303,7 +369,7 @@
 				}
 			});
 			persistDrafts(); renderPendingBar();
-			notice(errors.length ? errors.join("; ") : "Decisions saved. Recorded details will appear with the next update.");
+			notice(errors.length ? errors.join("; ") : "Decisions saved. See History & discussion for the record and any replies.");
 		}).catch(function (err) { notice(err.message); }).finally(function () {
 			state.saving = false;
 			pollHolds();
@@ -331,7 +397,7 @@
 				var selectedID = selected && selected.id;
 				data.holds.forEach(function (h) {
 					var old = byID[h.id];
-					if (h.updated || (old && old.revision !== h.revision) || (!old && h.state === 'inbox')) state.updates[h.id] = true;
+					if (h.updated || (old && old.activity_revision !== h.activity_revision) || (!old && h.state === 'inbox')) state.updates[h.id] = true;
 				});
 				holds = data.holds;
 				byID = {};
@@ -339,7 +405,7 @@
 				// Retain the current item even if its folder changes. Reading context
 				// and the textarea DOM stay untouched until the user opens an update.
 				if (selected && !byID[selectedID]) {
-					selected = Object.assign({}, selected, {state:'stood-down', resolved_reason:'Removed from the current feed', revision:selected.revision.replace(/-removed$/, '') + '-removed'});
+					selected = Object.assign({}, selected, {state:'stood-down', resolved_reason:'Removed from the current feed', revision:selected.revision.replace(/-removed$/, '') + '-removed', activity_revision:selected.activity_revision.replace(/-removed$/, '') + '-removed'});
 					state.updates[selectedID] = true;
 					 holds.push(selected); byID[selectedID] = selected;
 				}
@@ -349,7 +415,7 @@
 				state.cursor = Math.max(0, index);
 				renderFolders(); renderList(); updateActivity();
 				var button = document.getElementById('show-update');
-				if (button && byID[selectedID]) button.hidden = byID[selectedID].revision === displayedRevision;
+				if (button && byID[selectedID]) button.hidden = byID[selectedID].activity_revision === displayedActivityRevision;
 				if (!selectedID && currentHold()) renderReading();
 			}).catch(function (err) { liveEl.textContent = err.message; }).finally(function () { polling = false; });
 	}
@@ -380,7 +446,8 @@
 	}
 
 	function scrollReading(dir) {
-		readingEl.scrollBy(0, dir * (readingEl.clientHeight / 2));
+		var content = document.getElementById('reading-content');
+		if (content) content.scrollBy(0, dir * (content.clientHeight / 2));
 	}
 
 	// --- event wiring -----------------------------------------------------
@@ -406,6 +473,9 @@
 		if (ev.target.id === "note-input") saveNoteDraft();
 	});
 	readingEl.addEventListener("click", function (ev) {
+		var tabButton = ev.target.closest('[data-tab]');
+		if (tabButton) { saveNoteDraft(); readingTab = tabButton.dataset.tab; renderReading(); return; }
+		if (ev.target.id === 'clear-ruling') { clearPending(); return; }
 		if (ev.target.id === "show-update") { saveNoteDraft(); openSelected(); return; }
 		var btn = ev.target.closest("button[data-action]");
 		if (btn) {
@@ -441,6 +511,7 @@
 
 		if (ev.key === "Escape") {
 			if (!cheatsheetEl.hidden) cheatsheetEl.hidden = true;
+			else clearPending();
 			return;
 		}
 

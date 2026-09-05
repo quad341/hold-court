@@ -5,6 +5,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -30,11 +31,58 @@ CREATE TABLE IF NOT EXISTS prefs (
 	value TEXT NOT NULL,
 	PRIMARY KEY (user, key)
 );
+CREATE TABLE IF NOT EXISTS hold_history (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	hold_id TEXT NOT NULL,
+	kind TEXT NOT NULL,
+	revision TEXT NOT NULL,
+	at TEXT NOT NULL,
+	data TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS hold_history_lookup ON hold_history(hold_id, kind, id);
 `
 
 // Store wraps the SQLite database backing reads/threads/prefs.
 type Store struct {
 	db *sql.DB
+}
+
+// HistoryEntry is an immutable observed review, decision, or consumer result.
+type HistoryEntry struct {
+	ID   int64           `json:"id"`
+	Kind string          `json:"kind"`
+	At   string          `json:"at"`
+	Data json.RawMessage `json:"data"`
+}
+
+// Observe records a component only when its content changes. A repeated poll
+// does not create an event, while reverting to an earlier version does.
+func (s *Store) Observe(holdID, kind, revision string, data []byte) error {
+	_, err := s.db.Exec(`INSERT INTO hold_history(hold_id,kind,revision,at,data)
+		SELECT ?,?,?,?,? WHERE COALESCE((SELECT revision FROM hold_history
+		WHERE hold_id=? AND kind=? ORDER BY id DESC LIMIT 1),'') != ?`,
+		holdID, kind, revision, time.Now().UTC().Format(time.RFC3339Nano), string(data), holdID, kind, revision)
+	return err
+}
+
+// History returns the complete observed history, newest first.
+func (s *Store) History(holdID string) ([]HistoryEntry, error) {
+	rows, err := s.db.Query(`SELECT id,kind,at,data FROM hold_history WHERE hold_id=? ORDER BY id DESC`, holdID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	entries := []HistoryEntry{}
+	for rows.Next() {
+		var e HistoryEntry
+		var data string
+		if err := rows.Scan(&e.ID, &e.Kind, &e.At, &data); err != nil {
+			return nil, err
+		}
+		e.Data = json.RawMessage(data)
+		entries = append(entries, e)
+	}
+	return entries, rows.Err()
 }
 
 // Open opens (creating if necessary) the SQLite file at path and ensures the
@@ -136,4 +184,17 @@ func (s *Store) ToggleRead(user, holdID string, at time.Time) error {
 		return s.MarkRead(user, holdID, at)
 	}
 	return s.MarkUnread(user, holdID)
+}
+
+// IncomingResultRevision retains the last observed consumer activity across a
+// new queued decision, so sending a follow-up is not itself an incoming update.
+func (s *Store) IncomingResultRevision(holdID string) (string, error) {
+	var revision string
+	err := s.db.QueryRow(`SELECT revision FROM hold_history
+ WHERE hold_id = ? AND kind = 'result' AND json_extract(data, '$.status') != 'queued'
+ ORDER BY id DESC LIMIT 1`, holdID).Scan(&revision)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return revision, err
 }

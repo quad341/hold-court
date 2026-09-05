@@ -25,6 +25,7 @@
 		{{end}}
 		</ul>
 	</nav>
+	<div id="folder-divider" role="separator" aria-label="Resize folders" aria-orientation="vertical" tabindex="0"></div>
 	<section id="pane-list">
 		<ul>
 		{{range .ListHolds}}
@@ -32,12 +33,15 @@
 		{{end}}
 		</ul>
 	</section>
+	<div id="reading-divider" role="separator" aria-label="Resize hold list" aria-orientation="horizontal" tabindex="0"></div>
 	<section id="pane-reading">
 		{{with .SelectedHold}}
+		<div id="reading-content">
 		<h1>{{.Title}}</h1>
 		<p class="question">{{.Question}}</p>
 		<p><a href="{{.URL}}" target="_blank" rel="noopener">{{.Repo}} #{{.PR}}</a> &middot; {{.State}}</p>
 		<div class="review-body">{{.ReviewHTML}}</div>
+		</div>
 		<div id="ruling-bar">
 			<button type="button" data-action="proceed">p: Accept recommendation</button>
 			<button type="button" data-action="changes">c: Request author changes</button>
@@ -65,6 +69,8 @@
 <script id="holds-data" type="application/json">{{.HoldsJSON}}</script>
 <script id="folders-data" type="application/json">{{.FoldersJSON}}</script>
 <script id="mode-data" type="application/json">{"record_only":{{.RecordOnly}}}</script>
+<div id="consumer-description" hidden>{{.ConsumerDescription}}</div>
 <script src="/static/app.js"></script>
+<script src="/static/layout.js"></script>
 </body>
 </html>
