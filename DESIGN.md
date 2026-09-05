@@ -33,19 +33,19 @@ Deployment modes:
 
 ## UI: mutt, as a web page
 
-Three panes:
+Three panes, with the list and reading pane stacked so long titles have room:
 
 ```
-+------------+----------------------------+--------------------------------+
-| FOLDERS    | HOLD LIST                  | READING PANE                   |
-| Inbox  12  | > #5795 Push-tier relax  1d|  The one operative question,   |
-| Ruled   4  |   #5801 Anti-clobber     1d|  stated up front.              |
-| Executed 6 |   #4967 Split stack      6d|                                |
-| ----       |   ...                      |  [prepared review, rendered]   |
-| guard    2 |                            |  [discussion thread]           |
-| policy   3 |  unread = bold             |  [ruling bar: proceed/changes/ |
-| scope    5 |                            |   close/discuss + note]        |
-+------------+----------------------------+--------------------------------+
++------------+---------------------------------------------------------+
+| FOLDERS    | HOLD LIST: full titles, wrapping when needed            |
+| Inbox  12  | > Push-tier relaxation for release branches             |
+| Ruled   4  |   owner/repo #5795 · held date                           |
+| Executed 6 |---------------------------------------------------------|
+| ----       | READING PANE: question, prepared review, saved decision  |
+| guard    2 | and consumer result. Discussion thread is future work.  |
+| policy   3 |                                                         |
+| scope    5 | [ruling bar + note + explicit execution mode]           |
++------------+---------------------------------------------------------+
 ```
 
 - Unread semantics come from email: a hold you have not opened is bold; a hold
@@ -79,6 +79,16 @@ Three panes:
 
 Mouse works everywhere; keys are the fast path. A visible pending-rulings bar
 mirrors the count (`s` to commit), so partial work is never silently lost.
+
+The browser polls `/api/holds` every five seconds using ETag revalidation.
+Updates preserve selection, scroll, and the textarea DOM. Changed content for
+the active hold is offered through Show update; other changes appear in Updates.
+Read acknowledgements include the displayed content revision, so a new result
+cannot be swallowed by a delayed acknowledgement of an earlier view. Pending
+rulings and notes are backed up to local storage for the current server origin.
+
+The MPR action meanings and discussion lifecycle need an explicit consumer
+contract; see [the proposed decision flow](docs/mpr-decision-flow.md).
 
 ## Feed contract (v0)
 

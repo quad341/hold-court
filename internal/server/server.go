@@ -5,6 +5,7 @@
 package server
 
 import (
+	"crypto/sha256"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -83,6 +84,7 @@ func New(cfg Config) (http.Handler, error) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.handleIndex)
+	mux.HandleFunc("GET /api/holds", s.handleHolds)
 	mux.HandleFunc("POST /api/holds/{id}/read", s.handleSetRead)
 	mux.HandleFunc("POST /api/rulings", s.handleSaveRulings)
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(staticSub)))
@@ -93,18 +95,23 @@ func New(cfg Config) (http.Handler, error) {
 // wire shape embedded in the page's #holds-data JSON island, so the server-
 // rendered fallback and the client app agree on one set of fields.
 type holdJSON struct {
-	ID         string        `json:"id"`
-	Title      string        `json:"title"`
-	Question   string        `json:"question"`
-	ReviewHTML template.HTML `json:"review_html"`
-	Class      string        `json:"class"`
-	Repo       string        `json:"repo"`
-	PR         int           `json:"pr"`
-	URL        string        `json:"url"`
-	Verdict    string        `json:"verdict"`
-	HeldAt     string        `json:"held_at"`
-	State      string        `json:"state"` // inbox | ruled | executed | stood-down
-	Unread     bool          `json:"unread"`
+	ID             string         `json:"id"`
+	Title          string         `json:"title"`
+	Question       string         `json:"question"`
+	ReviewHTML     template.HTML  `json:"review_html"`
+	Class          string         `json:"class"`
+	Repo           string         `json:"repo"`
+	PR             int            `json:"pr"`
+	URL            string         `json:"url"`
+	Verdict        string         `json:"verdict"`
+	HeldAt         string         `json:"held_at"`
+	State          string         `json:"state"` // inbox | ruled | executed | stood-down
+	Unread         bool           `json:"unread"`
+	Updated        bool           `json:"updated"`
+	Revision       string         `json:"revision"`
+	Ruling         *ruling.Ruling `json:"ruling,omitempty"`
+	Result         *ruling.Result `json:"result,omitempty"`
+	ResolvedReason string         `json:"resolved_reason,omitempty"`
 }
 
 // folderJSON is one entry in the folders pane: either a selectable folder
@@ -124,24 +131,57 @@ type pageData struct {
 	HoldsJSON      template.JS
 	FoldersJSON    template.JS
 	Keybindings    []KeyBinding
+	RecordOnly     bool
 }
 
-func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
+func (s *server) holdViews() ([]holdJSON, error) {
 	holds, err := s.feed.snapshot()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, err
 	}
-	sort.Slice(holds, func(i, j int) bool { return holds[i].HeldAt.After(holds[j].HeldAt) })
+	sort.SliceStable(holds, func(i, j int) bool { return holds[i].HeldAt.After(holds[j].HeldAt) })
 
 	views := make([]holdJSON, 0, len(holds))
 	for _, h := range holds {
 		v, err := s.buildHoldView(h)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+			return nil, err
 		}
 		views = append(views, v)
+	}
+	return views, nil
+}
+
+func (s *server) handleHolds(w http.ResponseWriter, r *http.Request) {
+	views, err := s.holdViews()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	data, err := json.Marshal(struct {
+		Holds   []holdJSON   `json:"holds"`
+		Folders []folderJSON `json:"folders"`
+	}{views, buildFolders(views)})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	etag := fmt.Sprintf(`"%x"`, sha256.Sum256(data))
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("ETag", etag)
+	if r.Header.Get("If-None-Match") == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(data)
+}
+
+func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
+	views, err := s.holdViews()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	folders := buildFolders(views)
@@ -184,6 +224,7 @@ func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		HoldsJSON:      template.JS(holdsJSON),   //nolint:gosec // encoding/json escapes <,>,& by default; safe to embed in a script tag
 		FoldersJSON:    template.JS(foldersJSON), //nolint:gosec // encoding/json escapes <,>,& by default; safe to embed in a script tag
 		Keybindings:    Keybindings,
+		RecordOnly:     len(s.cfg.OnRuling) == 0,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -203,19 +244,40 @@ func (s *server) buildHoldView(h *feed.Hold) (holdJSON, error) {
 		return holdJSON{}, fmt.Errorf("server: hold %s: %w", h.ID, err)
 	}
 
+	rl, _, _ := ruling.Read(s.cfg.RulingsDir, h.ID)
+	result, _, _ := ruling.ReadResult(s.cfg.RulingsDir, h.ID)
+	content, err := json.Marshal(struct {
+		Hold   *feed.Hold
+		Ruling *ruling.Ruling
+		Result *ruling.Result
+	}{h, rl, result})
+	if err != nil {
+		return holdJSON{}, err
+	}
+	revision := fmt.Sprintf("%x", sha256.Sum256(content))
+	readRevision, err := s.cfg.Store.ReadRevision(s.cfg.User, h.ID)
+	if err != nil {
+		return holdJSON{}, err
+	}
+	updated := readRevision != "" && readRevision != revision
 	return holdJSON{
-		ID:         h.ID,
-		Title:      h.Title,
-		Question:   h.Question,
-		ReviewHTML: reviewHTML,
-		Class:      h.Class,
-		Repo:       h.Repo,
-		PR:         h.PR,
-		URL:        h.URL,
-		Verdict:    h.Verdict,
-		HeldAt:     h.HeldAt.Format(time.RFC3339),
-		State:      holdState(s.cfg.RulingsDir, h),
-		Unread:     unread,
+		ID:             h.ID,
+		Title:          strings.TrimPrefix(h.Title, fmt.Sprintf("%s #%d: ", h.Repo, h.PR)),
+		Question:       h.Question,
+		ReviewHTML:     reviewHTML,
+		Class:          h.Class,
+		Repo:           h.Repo,
+		PR:             h.PR,
+		URL:            h.URL,
+		Verdict:        h.Verdict,
+		HeldAt:         h.HeldAt.Format(time.RFC3339),
+		State:          holdState(s.cfg.RulingsDir, h),
+		Unread:         unread || updated,
+		Updated:        updated,
+		Revision:       revision,
+		Ruling:         rl,
+		Result:         result,
+		ResolvedReason: h.ResolvedReason,
 	}, nil
 }
 
@@ -231,7 +293,7 @@ func holdState(rulingsDir string, h *feed.Hold) string {
 		}
 		return "inbox"
 	}
-	if _, executed, _ := ruling.ReadResult(rulingsDir, h.ID); executed {
+	if result, found, _ := ruling.ReadResult(rulingsDir, h.ID); found && result.Status == "executed" {
 		return "executed"
 	}
 	return "ruled"
@@ -322,7 +384,8 @@ func (s *server) handleSetRead(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
 	var body struct {
-		Unread bool `json:"unread"`
+		Unread   bool   `json:"unread"`
+		Revision string `json:"revision"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "server: decode request: "+err.Error(), http.StatusBadRequest)
@@ -333,7 +396,7 @@ func (s *server) handleSetRead(w http.ResponseWriter, r *http.Request) {
 	if body.Unread {
 		err = s.cfg.Store.MarkUnread(s.cfg.User, id)
 	} else {
-		err = s.cfg.Store.MarkRead(s.cfg.User, id, time.Now())
+		err = s.cfg.Store.MarkReadRevision(s.cfg.User, id, body.Revision, time.Now())
 	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -344,9 +407,10 @@ func (s *server) handleSetRead(w http.ResponseWriter, r *http.Request) {
 }
 
 type rulingRequest struct {
-	HoldID string `json:"hold_id"`
-	Action string `json:"action"`
-	Note   string `json:"note"`
+	HoldID   string `json:"hold_id"`
+	Action   string `json:"action"`
+	Note     string `json:"note"`
+	Revision string `json:"revision"`
 }
 
 type rulingResponse struct {
@@ -367,7 +431,25 @@ func (s *server) handleSaveRulings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	results := make([]rulingResponse, 0, len(reqs))
+	views, err := s.holdViews()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	current := make(map[string]holdJSON, len(views))
+	for _, view := range views {
+		current[view.ID] = view
+	}
 	for _, item := range reqs {
+		view, found := current[item.HoldID]
+		if !found || view.State == "stood-down" || view.ResolvedReason != "" {
+			results = append(results, rulingResponse{HoldID: item.HoldID, Error: "Hold is no longer actionable; open a current hold."})
+			continue
+		}
+		if item.Revision != "" && item.Revision != view.Revision {
+			results = append(results, rulingResponse{HoldID: item.HoldID, Error: "Hold changed since this decision was prepared. Show the update and choose your decision again; your note is retained."})
+			continue
+		}
 		rl := ruling.Ruling{
 			HoldID:  item.HoldID,
 			Action:  ruling.Action(item.Action),

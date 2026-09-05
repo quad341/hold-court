@@ -87,6 +87,36 @@ func (s *Store) MarkRead(user, holdID string, at time.Time) error {
 	return nil
 }
 
+// ReadRevision returns the content revision last acknowledged by the user.
+// Preferences keep this additive to existing read-state databases.
+func (s *Store) ReadRevision(user, holdID string) (string, error) {
+	var revision string
+	err := s.db.QueryRow(`SELECT value FROM prefs WHERE user = ? AND key = ?`, user, "read-revision:"+holdID).Scan(&revision)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return revision, err
+}
+
+// MarkReadRevision records precisely the content the browser displayed. A
+// concurrent new result must remain unread until the user sees that revision.
+func (s *Store) MarkReadRevision(user, holdID, revision string, at time.Time) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`INSERT INTO reads (user, hold_id, last_read_at) VALUES (?, ?, ?)
+		ON CONFLICT (user, hold_id) DO UPDATE SET last_read_at = excluded.last_read_at`, user, holdID, at); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT INTO prefs (user, key, value) VALUES (?, ?, ?)
+		ON CONFLICT (user, key) DO UPDATE SET value = excluded.value`, user, "read-revision:"+holdID, revision); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // MarkUnread clears any read record, making holdID unread again for user.
 func (s *Store) MarkUnread(user, holdID string) error {
 	_, err := s.db.Exec(`DELETE FROM reads WHERE user = ? AND hold_id = ?`, user, holdID)

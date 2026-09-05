@@ -65,6 +65,7 @@ Run `make` or `make help` to list the available commands.
 | `make install` | Install the binary into `GOBIN`, or `GOPATH/bin` by default |
 | `make test` | Run all Go tests |
 | `make test-race` | Run tests with the race detector |
+| `make test-browser` | Run browser regressions (requires Python Playwright and its Chromium browser) |
 | `make vet` | Run Go's static checks |
 | `make fmt` | Format Go source |
 | `make fmt-check` | Check formatting without modifying source |
@@ -79,7 +80,40 @@ checks used by CI. Race tests require cgo enabled and a C compiler; ordinary
 builds and `make test` do not require cgo. You can override tool commands with
 `GO` and `GOLANGCI_LINT`, for example `make lint GOLANGCI_LINT=/path/to/golangci-lint`.
 
+The optional browser checks exercise live arrivals while typing, draft recovery,
+save failures, and result updates using temporary data. Install Python's
+`playwright` package in your development environment and its Chromium browser
+(`python -m playwright install chromium`), then run `make test-browser`.
+Use `PYTHON=/path/to/python` to select that environment.
+
+## Working through holds
+
+Folders stay on the left. The hold list sits **above** the reading pane and uses
+the remaining width; titles wrap, with repository and PR number on a separate
+line. The browser checks the feed and ruling results every five seconds.
+The header shows connection status and an **Updates** button for new activity.
+An adapter may refresh its source less frequently; the browser reflects the
+latest files the adapter has written.
+
+Arrivals preserve your selected hold, scroll position, and note. When the hold
+you are reading changes, choose **Show update** when you want to load that
+revision. Other changed holds get an Updated label; previously read holds
+become unread when their review or result changes. Reading the new revision
+acknowledges it. Pending decisions and notes are backed up in this browser's
+local storage for this server URL. Save failures remain visible and keep drafts.
+
+Without an `on_ruling` hook, the app explicitly runs in **record-only** mode.
+It displays the saved action, note, and any consumer result. The existing action
+codes do not define an MPR execution policy: there is no automatic merge,
+generated closing message, or connected agent conversation. See the
+[proposed MPR decision contract](docs/mpr-decision-flow.md) for the distinction
+between accepting a recommendation, revising our review, requesting author
+changes, closing a PR, and discussing a hold.
+
 ## Screenshots
+
+These screenshots show the original side-by-side layout; the current hold list
+and reading pane are stacked as described above.
 
 Three panes, mutt-shaped: folders by state and class on the left, the hold list in the middle, the reading pane with the one question, the prepared review, and the ruling bar on the right.
 
