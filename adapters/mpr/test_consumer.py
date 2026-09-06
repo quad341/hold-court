@@ -1,9 +1,11 @@
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('consumer', Path(__file__).with_name('consumer.py'))
 consumer = importlib.util.module_from_spec(spec)
@@ -88,6 +90,24 @@ class ConsumerTests(unittest.TestCase):
         self.assertEqual(self.result()['thread'][0]['body'], 'What is the reason to close?')
         self.assertEqual(consumer.read(self.ruling), self.request)
         self.assertEqual(consumer.read(self.path())['request']['action'], 'close')
+
+    def test_command_exposes_configured_tools_to_child_commands(self):
+        config = dict(self.config, bd='/custom/beads/bin/bd', gc='/custom/gc/bin/gc', gh='/usr/bin/gh')
+        with patch.dict(os.environ, {'PATH':'/usr/bin:/bin'}), patch('subprocess.run') as run:
+            run.return_value.stdout = '{}'
+            consumer.command(config, [config['gc'], 'sling', 'mayor', 'test'])
+        environment = run.call_args.kwargs['env']
+        self.assertEqual(environment['PATH'].split(os.pathsep)[:2], ['/custom/beads/bin', '/custom/gc/bin'])
+        self.assertTrue(environment['PATH'].endswith('/usr/bin:/bin'))
+        self.assertEqual(environment['GC_CITY_ROOT'], config['city_root'])
+
+    def test_failed_dispatch_exposes_command_diagnostic(self):
+        consumer.enqueue(self.config, self.request)
+        failure = subprocess.CalledProcessError(1, ['gc', 'sling'], stderr='target unavailable')
+        with patch.object(consumer, 'sync_job', side_effect=failure), patch('sys.stderr'):
+            consumer.worker(self.config)
+        self.assertIn('target unavailable', self.result()['summary'])
+        self.assertIn('target unavailable', consumer.read(self.path())['last_error'])
 
     def test_stale_head_never_dispatches(self):
         consumer.enqueue(self.config,self.request)

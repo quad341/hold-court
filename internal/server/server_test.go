@@ -3,6 +3,8 @@ package server
 import (
 	"bytes"
 	"fmt"
+	"html/template"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -314,7 +316,7 @@ func captureLog(t *testing.T) *bytes.Buffer {
 	return &buf
 }
 
-func TestHandleSetRead_LogsReadStateChange(t *testing.T) {
+func TestHandleSetRead_QuietOnSuccess(t *testing.T) {
 	h := newTestHandler(t)
 	logBuf := captureLog(t)
 
@@ -326,12 +328,12 @@ func TestHandleSetRead_LogsReadStateChange(t *testing.T) {
 	if got := w.Result().StatusCode; got != http.StatusNoContent {
 		t.Fatalf("status = %d, want %d", got, http.StatusNoContent)
 	}
-	if !strings.Contains(logBuf.String(), fixtureHoldID) {
-		t.Errorf("expected read-state change to be logged with the hold id; got log output: %q", logBuf.String())
+	if logBuf.Len() != 0 {
+		t.Errorf("successful read-state change should be quiet; got log output: %q", logBuf.String())
 	}
 }
 
-func TestHandleSaveRulings_LogsRulingWrite(t *testing.T) {
+func TestHandleSaveRulings_QuietOnSuccess(t *testing.T) {
 	h := newTestHandler(t)
 	logBuf := captureLog(t)
 
@@ -344,7 +346,62 @@ func TestHandleSaveRulings_LogsRulingWrite(t *testing.T) {
 	if got := w.Result().StatusCode; got != http.StatusOK {
 		t.Fatalf("status = %d, want %d", got, http.StatusOK)
 	}
-	if !strings.Contains(logBuf.String(), fixtureHoldID) {
-		t.Errorf("expected ruling write to be logged with the hold id; got log output: %q", logBuf.String())
+	if logBuf.Len() != 0 {
+		t.Errorf("successful ruling write should be quiet; got log output: %q", logBuf.String())
 	}
+}
+
+// A failed transport has already committed a response, just like net/http.
+type failedPageWriter struct {
+	header           http.Header
+	committed        bool
+	duplicateHeaders int
+	writes           int
+}
+
+func (w *failedPageWriter) Header() http.Header { return w.header }
+func (w *failedPageWriter) WriteHeader(_ int) {
+	if w.committed {
+		w.duplicateHeaders++
+	}
+	w.committed = true
+}
+func (w *failedPageWriter) Write(_ []byte) (int, error) {
+	if !w.committed {
+		w.WriteHeader(http.StatusOK)
+	}
+	w.writes++
+	return 0, io.ErrClosedPipe
+}
+
+func TestIndexResponseFailures(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	s := &server{cfg: Config{Store: db, RulingsDir: t.TempDir(), User: "operator"}, feed: newFeedCache(t.TempDir(), time.Hour)}
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	t.Run("template failure is a clean 500", func(t *testing.T) {
+		s.tmpl = template.Must(template.New("index.html.tmpl").Parse(`partial page{{.MissingField}}`))
+		w := httptest.NewRecorder()
+		s.handleIndex(w, request)
+		if w.Code != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want 500", w.Code)
+		}
+		if strings.HasPrefix(w.Body.String(), "partial page") {
+			t.Fatal("partial template leaked into error response")
+		}
+		if got := w.Header().Get("Content-Type"); got != "text/plain; charset=utf-8" {
+			t.Fatalf("content type = %q", got)
+		}
+	})
+	t.Run("disconnect does not write a second response", func(t *testing.T) {
+		s.tmpl = template.Must(template.New("index.html.tmpl").Parse(`complete page`))
+		w := &failedPageWriter{header: make(http.Header)}
+		s.handleIndex(w, request)
+		if w.duplicateHeaders != 0 || w.writes != 1 {
+			t.Fatalf("duplicate headers = %d, writes = %d", w.duplicateHeaders, w.writes)
+		}
+	})
 }
