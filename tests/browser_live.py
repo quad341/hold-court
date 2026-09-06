@@ -88,6 +88,17 @@ with tempfile.TemporaryDirectory(prefix='hold-court-live-test-') as tmp:
             expect(page.locator('#pane-list li')).to_have_count(1)
             expect(page.locator('#search-summary')).to_contain_text('review and history excluded')
             page.locator('#clear-search').click()
+            for query, count in [('#42', 1), ('pr:42', 1), ('pr:#42', 1), ('#4', 0), ('pr:420', 0), ('author:Contributor pr:42 widgets', 1), ('pr:43', 0)]:
+                page.locator('#search-input').fill(query)
+                expect(page.locator('#pane-list li')).to_have_count(count)
+                expect(page.locator('#search-summary')).to_contain_text('exact PR number')
+            page.locator('#search-field').select_option('pr')
+            for query, count in [('42', 1), ('4', 0), ('widgets', 0), ('#42', 1), ('pr:42', 1)]:
+                page.locator('#search-input').fill(query)
+                expect(page.locator('#pane-list li')).to_have_count(count)
+            expect(page.locator('#note-input')).to_have_value('Keep this draft across search')
+            page.locator('#search-field').select_option('summary')
+            page.locator('#clear-search').click()
             page.locator('#search-input').press('Escape')
             list_box = page.locator('#pane-list').bounding_box()
             read_box = page.locator('#pane-reading').bounding_box()

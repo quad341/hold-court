@@ -37,7 +37,10 @@ A visible search bar shows the active folder, query, matching/total count, and
 fields searched. Summary fields are title, question, repository, PR number,
 class, and author; review text and conversation history are excluded. Author
 mode matches login substrings; `author:login` matches an exact login and can
-combine with summary text. Filters persist across folders and preserve drafts.
+combine with summary text. Choose **PR number** to match an exact number, or use `#6004` / `pr:6004`
+in the search box. In Summary fields mode, combine with a repository name (for example,
+`pr:6004 gastownhall/gascity`) or `author:login` to narrow the result.
+Filters persist across folders and preserve drafts.
 
 Three panes, with the list and reading pane stacked so long titles have room:
 

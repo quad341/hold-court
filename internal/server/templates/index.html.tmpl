@@ -16,9 +16,9 @@
 </header>
 <form id="search-bar" role="search">
  <label for="search-input">Search (/)</label>
- <input id="search-input" type="search" placeholder="Search holds or author:login" aria-describedby="search-summary">
+ <input id="search-input" type="search" placeholder="Search holds, #123, pr:123, author:login" aria-describedby="search-summary">
  <label for="search-field">In</label>
- <select id="search-field"><option value="summary">Summary fields</option><option value="author">Author</option></select>
+ <select id="search-field"><option value="summary">Summary fields</option><option value="author">Author</option><option value="pr">PR number</option></select>
  <button id="clear-search" type="button">Clear</button>
  <span id="search-summary" role="status" aria-live="polite"></span>
 </form>

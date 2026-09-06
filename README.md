@@ -142,7 +142,10 @@ repository, PR number, class, and author; it excludes review text and history.
 Choose **Author** for a case-insensitive login substring search (an initial `@`
 is optional), or type `author:login` for an exact login match. For example,
 `author:alice timeout` finds Alice's holds whose summary fields contain
-“timeout”. Filters remain active when switching folders; **Clear** removes the
+“timeout”. Choose **PR number** to match an exact number, or use `#6004` / `pr:6004`
+in the search box. In Summary fields mode, combine with a repository name (for example,
+`pr:6004 gastownhall/gascity`) or `author:login` to narrow the result.
+Filters remain active when switching folders; **Clear** removes the
 query. Draft notes survive filtering, including zero-result searches.
 
 Drag the thick dividers to resize the folders and list; focused dividers also
