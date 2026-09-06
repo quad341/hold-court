@@ -2,6 +2,7 @@
 Run via make test-browser; all feed, database, and ruling data is temporary.
 """
 import json
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 import signal
@@ -26,9 +27,9 @@ with tempfile.TemporaryDirectory(prefix='hold-court-live-test-') as tmp:
     feed.mkdir()
     rulings.mkdir()
     title = 'A long actual pull request title explaining a subtle process-group cancellation race across foreground children'
-    hold = dict(id='example-42-head', repo='example/widgets', pr=42,
+    hold = dict(id='example-42-head', repo='example/widgets', pr=42, author='Contributor',
                 title='example/widgets #42: ' + title, question='Should this behavior change?',
-                review_body_md='Prepared review\n\n' + ('Context paragraph.\n\n' * 40),
+                review_body_md='## Prepared review\n\nThe cancellation change preserves the process-group boundary during shutdown. The remaining decision is whether cleanup should wait for child processes to finish.\n\n' + ('### Verification\n\nExercise cancellation with a foreground child and confirm that cleanup leaves no orphan process.\n\n' * 20),
                 head_sha='a' * 40, held_at='2026-09-01T12:00:00Z',
                 url='https://github.com/example/widgets/pull/42', **{'class': 'scope'})
     write_json(feed / 'one.json', hold)
@@ -44,13 +45,47 @@ with tempfile.TemporaryDirectory(prefix='hold-court-live-test-') as tmp:
         url = server.stdout.readline().strip().split('session: ', 1)[1]
         with sync_playwright() as pw:
             browser = pw.chromium.launch(executable_path=os.environ.get('HOLD_COURT_CHROMIUM'))
-            page = browser.new_page(viewport={'width': 1280, 'height': 900})
+            page = browser.new_page(viewport={'width': 1280, 'height': 900}, color_scheme='dark')
+            def doc_screenshot(name):
+                directory = os.environ.get('HOLD_COURT_DOC_SCREENSHOTS')
+                if not directory:
+                    return
+                Path(directory).mkdir(parents=True, exist_ok=True)
+                page.set_viewport_size({'width':1280, 'height':1100})
+                page.screenshot(path=str(Path(directory)/name))
+                page.set_viewport_size({'width':1280, 'height':900})
+
             errors = []
             page.on('pageerror', lambda error: errors.append(str(error)))
             confirmations = []
             page.on('dialog', lambda dialog: (confirmations.append(dialog.message), dialog.accept()))
             page.goto(url)
             expect(page.locator('.hold-title')).to_have_text(title)
+            expect(page.locator('.hold-meta')).to_contain_text('@Contributor')
+            expect(page.locator('#reading-content .hold-author')).to_have_text('Author: @Contributor')
+            page.locator('#note-input').fill('Keep this draft across search')
+            page.keyboard.press('Escape')
+            page.keyboard.press('/')
+            expect(page.locator('#search-input')).to_be_focused()
+            page.locator('#search-input').fill('author:CONTRIBUTOR')
+            expect(page.locator('#pane-list li')).to_have_count(1)
+            expect(page.locator('#search-summary')).to_contain_text('1 of 1 holds')
+            expect(page.locator('#search-summary')).to_contain_text('author: matches an exact login')
+            page.locator('#search-input').fill('author:contrib')
+            expect(page.locator('#pane-list li')).to_have_count(0)
+            expect(page.locator('#search-summary')).to_contain_text('0 of 1 holds')
+            page.locator('#clear-search').click()
+            page.locator('#search-field').select_option('author')
+            page.locator('#search-input').fill('contrib')
+            expect(page.locator('#pane-list li')).to_have_count(1)
+            expect(page.locator('#note-input')).to_have_value('Keep this draft across search')
+            page.locator('#search-input').fill('widgets')
+            expect(page.locator('#pane-list li')).to_have_count(0)
+            page.locator('#search-field').select_option('summary')
+            expect(page.locator('#pane-list li')).to_have_count(1)
+            expect(page.locator('#search-summary')).to_contain_text('review and history excluded')
+            page.locator('#clear-search').click()
+            page.locator('#search-input').press('Escape')
             list_box = page.locator('#pane-list').bounding_box()
             read_box = page.locator('#pane-reading').bounding_box()
             assert list_box['width'] > 900 and read_box['y'] >= list_box['y'] + list_box['height']
@@ -80,6 +115,14 @@ with tempfile.TemporaryDirectory(prefix='hold-court-live-test-') as tmp:
             expect(page.locator('#note-input')).to_be_focused()
             assert page.locator('#reading-content').evaluate('(el) => el.scrollTop') == original_scroll
             expect(page.locator('#activity-button')).to_have_text('Updates (1)')
+            if os.environ.get('HOLD_COURT_DOC_SCREENSHOTS'):
+                page.locator('#reading-content').evaluate('(el) => el.scrollTop = 0')
+                page.locator('#note-input').press('Escape')
+                doc_screenshot('inbox.png')
+                page.keyboard.press('?')
+                expect(page.locator('#cheatsheet-overlay')).to_be_visible()
+                doc_screenshot('keys.png')
+                page.keyboard.press('Escape')
             hold['question'] = 'Updated review question'
             write_json(feed / 'one.json', hold)
             expect(page.locator('#show-update')).to_be_visible(timeout=15000)
@@ -123,10 +166,14 @@ with tempfile.TemporaryDirectory(prefix='hold-court-live-test-') as tmp:
             page.locator('.history-tabs [data-tab="history"]').click()
             expect(page.locator('#reading-tab')).to_contain_text('Keep my reasoning')
             expect(page.locator('#reading-tab')).to_contain_text('Should this behavior change?')
-            write_json(rulings/'example-42-head.thread.json', {'messages':[{'id':'reply-1','author':'test-agent','body':'Here is the reasoning you requested.','at':'2026-09-05T13:00:00Z'}]})
+            write_json(rulings/'example-42-head.result.json', {'status':'reply_ready', 'summary':'Agent reply is ready'})
+            write_json(rulings/'example-42-head.thread.json', {'messages':[{'id':'reply-1','author':'test-agent','body':'Here is the reasoning you requested.','at':datetime.now(timezone.utc).isoformat()}]})
             expect(page.locator('#show-update')).to_be_visible(timeout=15000)
             page.locator('#show-update').click()
             expect(page.locator('#reading-tab')).to_contain_text('Here is the reasoning you requested.')
+            if os.environ.get('HOLD_COURT_DOC_SCREENSHOTS'):
+                page.locator('#reading-content').evaluate('(el) => el.scrollTop = 0')
+                doc_screenshot('reading-pane.png')
             # Blank annotations are valid agent input, including Close.
             page.locator('#note-input').fill('')
             page.locator('[data-action="close"]').click()

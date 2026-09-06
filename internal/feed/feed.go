@@ -16,6 +16,7 @@ import (
 // Hold is one held PR awaiting a ruling, as described by a single
 // feed/<id>.json document.
 type Hold struct {
+	Author         string    `json:"author,omitempty"`
 	ID             string    `json:"id"`
 	Source         string    `json:"source"`
 	Repo           string    `json:"repo"`

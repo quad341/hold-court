@@ -33,16 +33,22 @@ Deployment modes:
 
 ## UI: mutt, as a web page
 
+A visible search bar shows the active folder, query, matching/total count, and
+fields searched. Summary fields are title, question, repository, PR number,
+class, and author; review text and conversation history are excluded. Author
+mode matches login substrings; `author:login` matches an exact login and can
+combine with summary text. Filters persist across folders and preserve drafts.
+
 Three panes, with the list and reading pane stacked so long titles have room:
 
 ```
 +------------+---------------------------------------------------------+
 | FOLDERS    | HOLD LIST: full titles, wrapping when needed            |
 | Inbox  12  | > Push-tier relaxation for release branches             |
-| Ruled   4  |   owner/repo #5795 · held date                           |
+| Ruled   4  |   owner/repo #5795 · @author · held date                           |
 | Executed 6 |---------------------------------------------------------|
 | ----       | READING PANE: question, prepared review, saved decision  |
-| guard    2 | and consumer result. History and discussion have a separate tab.  |
+| guard    2 | and result. History & discussion has a separate tab.     |
 | policy   3 |                                                         |
 | scope    5 | [ruling bar + note + explicit execution mode]           |
 +------------+---------------------------------------------------------+
@@ -52,9 +58,11 @@ Three panes, with the list and reading pane stacked so long titles have room:
   updated since you last read it (new head, new discussion) re-bolds.
 - Folders are virtual: state folders (inbox / ruled / executed / stood-down)
   and class folders (from the feed's `class` field).
-- The reading pane renders the operative question first, then the full
-  prepared review body (markdown), then the discussion thread, then the ruling
-  bar. The PR link is always one keypress away.
+- The reading header shows the title, author, operative question, and PR link.
+  Review and History & discussion have separate tabs. The action area stays
+  docked below the scrolling content; both pane dividers resize.
+- README screenshots show the current dark theme with synthetic data and are
+  regenerated with `make screenshots` alongside UI changes.
 
 ### Keybindings (vim grammar, non-negotiable)
 
@@ -102,6 +110,7 @@ maintainer-pr-review exporter is simply the first adapter.
   "id": "gastownhall-gascity-5795-a1b2c3",   // stable per hold+head
   "source": "maintainer-pr-review",           // adapter name
   "repo": "gastownhall/gascity",
+  "author": "github-login",      // optional; unknown when absent
   "pr": 5795,
   "url": "https://github.com/gastownhall/gascity/pull/5795",
   "class": "ambiguous-needs-discussion",      // folder key

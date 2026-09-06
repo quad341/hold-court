@@ -8,7 +8,7 @@ GOLANGCI_LINT ?= golangci-lint
 GOLANGCI_LINT_VERSION := v2.13.2
 ARGS ?=
 
-.PHONY: help run build install test test-race test-browser test-adapters connect-mpr vet fmt fmt-check lint tools check clean
+.PHONY: help run build install test test-race test-browser screenshots test-adapters connect-mpr vet fmt fmt-check lint tools check clean
 
 help:
 	@printf '%s\n' \
@@ -18,6 +18,7 @@ help:
 	  'make test       Run Go tests' \
 	  'make test-race  Run Go tests with the race detector (requires a C compiler)' \
 	  'make test-browser Run live UI regression checks (requires Python Playwright)' \
+	  'make screenshots Refresh README screenshots in dark theme (requires Python Playwright)' \
 	  'make test-adapters Test MPR export and consumer without external writes' \
 	  'make connect-mpr Connect MPR and enable confirmed agent handoffs (CITY=... TARGET=...)' \
 	  'make vet        Run go vet' \
@@ -45,6 +46,9 @@ test-race:
 
 test-browser: build
 	$(PYTHON) tests/browser_live.py
+
+screenshots: build
+	HOLD_COURT_DOC_SCREENSHOTS="$(CURDIR)/docs/images" $(PYTHON) tests/browser_live.py
 
 test-adapters:
 	$(PYTHON) -m unittest discover -s adapters/mpr -p 'test_*.py'

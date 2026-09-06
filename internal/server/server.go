@@ -98,6 +98,7 @@ func New(cfg Config) (http.Handler, error) {
 // wire shape embedded in the page's #holds-data JSON island, so the server-
 // rendered fallback and the client app agree on one set of fields.
 type holdJSON struct {
+	Author           string           `json:"author"`
 	Thread           []ruling.Message `json:"thread,omitempty"`
 	ID               string           `json:"id"`
 	Title            string           `json:"title"`
@@ -342,6 +343,7 @@ func (s *server) buildHoldView(h *feed.Hold) (holdJSON, error) {
 		Updated:          updated,
 		Revision:         revision,
 		ActivityRevision: activityRevision,
+		Author:           h.Author,
 		HeadSHA:          h.HeadSHA,
 		Ruling:           rl,
 		Result:           result,

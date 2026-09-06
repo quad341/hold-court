@@ -54,6 +54,18 @@ class ExportTests(unittest.TestCase):
         self.assertNotIn("WRONG HEAD", hold["review_body_md"])
         self.assertEqual(hold["question"], "Please decide scope")
 
+    def test_author_uses_live_login_with_metadata_fallback(self):
+        self.live[42]['user'] = {'login':'contributor'}
+        self.refresh()
+        self.assertEqual(self.docs()[0]['author'], 'contributor')
+        self.live = {}
+        self.put(self.run/'metadata.json', {'headRefOid':self.head, 'author':{'login':'recorded-author'}})
+        self.refresh()
+        self.assertEqual(self.docs()[0]['author'], 'recorded-author')
+        self.put(self.run/'metadata.json', {'headRefOid':self.head})
+        self.refresh()
+        self.assertEqual(self.docs()[0]['author'], '')
+
     def test_closed_and_changed_heads_stand_down(self):
         for live, reason in [({}, "no longer open"), ({42: {"head": {"sha": "b" * 40}}}, "head changed")]:
             self.live = live

@@ -135,7 +135,12 @@ def export_hold(repo, marker, live, record_only=True):
     review = prepared if prepared.exists() else summary
     body += ["## Prepared review", review.read_text() if review.exists() else
              "MPR did not produce a prepared review for this hold (for example, the diff exceeded its review limit)."]
+    author = ((current or {}).get("user") or {}).get("login")
+    if not author:
+        recorded_author = metadata.get("author") or {}
+        author = recorded_author.get("login", "") if isinstance(recorded_author, dict) else recorded_author
     return {
+        "author": author,
         "id": hold_id, "source": SOURCE, "repo": repo, "pr": number,
         "url": f"https://github.com/{repo}/pull/{number}", "class": hold_class,
         "title": f"{repo} #{number}: {metadata.get('title', 'Held PR')}",

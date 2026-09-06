@@ -84,6 +84,7 @@ Run `make` or `make help` to list the available commands.
 | `make test-adapters` | Test export and handoff using isolated fixtures |
 | `make test` | Run all Go tests |
 | `make test-race` | Run tests with the race detector |
+| `make screenshots` | Refresh the dark-theme README screenshots using synthetic data (requires Python Playwright) |
 | `make test-browser` | Run browser regressions (requires Python Playwright and its Chromium browser) |
 | `make vet` | Run Go's static checks |
 | `make fmt` | Format Go source |
@@ -109,7 +110,7 @@ Use `PYTHON=/path/to/python` to select that environment.
 
 Folders stay on the left. The hold list sits **above** the reading pane and uses
 the remaining width; titles wrap, with repository and PR number on a separate
-line. The browser checks the feed and ruling results every five seconds.
+line alongside the PR author. Missing authors are shown as unknown. The browser checks the feed and ruling results every five seconds.
 The header shows connection status and an **Updates** button for new activity.
 An adapter may refresh its source less frequently; the browser reflects the
 latest files the adapter has written.
@@ -120,6 +121,15 @@ revision. Other changed holds get an Updated label; previously read holds
 become unread when their review or result changes. Reading the new revision
 acknowledges it. Pending decisions and notes are backed up in this browser's
 local storage for this server URL. Save failures remain visible and keep drafts.
+
+The visible search bar shows the active folder, query, match count, and fields
+searched. Press `/` to focus it. **Summary fields** searches title, question,
+repository, PR number, class, and author; it excludes review text and history.
+Choose **Author** for a case-insensitive login substring search (an initial `@`
+is optional), or type `author:login` for an exact login match. For example,
+`author:alice timeout` finds Alice's holds whose summary fields contain
+“timeout”. Filters remain active when switching folders; **Clear** removes the
+query. Draft notes survive filtering, including zero-result searches.
 
 Drag the thick dividers to resize the folders and list; focused dividers also
 support arrow keys and Home to reset. Sizes persist in this browser. The action
@@ -151,22 +161,24 @@ human inbox while retaining their source artifacts.
 
 ## Screenshots
 
-These screenshots show the original side-by-side layout; the current hold list
-and reading pane are stacked as described above.
+The search bar shows scope and counts above the stacked hold list and reader.
+PR authors appear alongside repository details and below the reading title.
 
-Three panes, mutt-shaped: folders by state and class on the left, the hold list in the middle, the reading pane with the one question, the prepared review, and the ruling bar on the right.
+![Dark-theme inbox with author metadata, search scope, and stacked panes](docs/images/inbox.png)
 
-![Hold Court inbox: folders, hold list, and the reading pane](docs/images/inbox.png)
+History & discussion keeps previous decisions and agent replies beside the
+current status, with the action area docked at the bottom.
 
-Open a hold with `Enter`, rule with `p` / `c` / `x` / `d`, annotate with `i`, save with `s`.
+![Dark-theme reading pane with decision history and an agent reply](docs/images/reading-pane.png)
 
-![Reading pane with the prepared review and the ruling bar](docs/images/reading-pane.png)
+`?` shows the key cheatsheet; `/` focuses search.
 
-`?` shows the key cheatsheet.
+![Dark-theme keyboard cheatsheet overlay](docs/images/keys.png)
 
-![Keyboard cheatsheet overlay](docs/images/keys.png)
-
-Synthetic feed data; shown in light theme. Dark follows your system's `prefers-color-scheme` automatically.
+These screenshots use synthetic data and the dark theme. The app follows your
+system theme automatically. Regenerate all three with `make screenshots` using
+the same Python Playwright environment as `make test-browser` (override `PYTHON`
+if needed). Keep these images and their descriptions current when changing the UI.
 
 ## Shape
 
