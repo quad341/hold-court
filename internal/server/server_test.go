@@ -281,7 +281,7 @@ func TestHandleSaveRulings_RequiresJSONContentType(t *testing.T) {
 		{"json with charset accepted", "application/json; charset=utf-8", http.StatusOK},
 	}
 
-	body := `[{"hold_id":"` + fixtureHoldID + `","action":"proceed","note":""}]`
+	body := `[{"hold_id":"` + fixtureHoldID + `","action":"proceed","note":"Proceed with the proposed fix and verify it before merging."}]`
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -337,7 +337,7 @@ func TestHandleSaveRulings_QuietOnSuccess(t *testing.T) {
 	h := newTestHandler(t)
 	logBuf := captureLog(t)
 
-	body := `[{"hold_id":"` + fixtureHoldID + `","action":"proceed","note":""}]`
+	body := `[{"hold_id":"` + fixtureHoldID + `","action":"proceed","note":"Proceed with the proposed fix and verify it before merging."}]`
 	req := httptest.NewRequest(http.MethodPost, "/api/rulings", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -404,4 +404,21 @@ func TestIndexResponseFailures(t *testing.T) {
 			t.Fatalf("duplicate headers = %d, writes = %d", w.duplicateHeaders, w.writes)
 		}
 	})
+}
+
+func TestAllRulingsRequireResponse(t *testing.T) {
+	h, dir := newHoldFixtureHandler(t, false)
+	for _, action := range []string{"proceed", "changes", "close", "discuss"} {
+		body := `[{"hold_id":"` + fixtureHoldID + `","action":"` + action + `","note":" \n\t"}]`
+		req := httptest.NewRequest(http.MethodPost, "/api/rulings", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if !strings.Contains(w.Body.String(), "Respond to the hold before saving") || strings.Contains(w.Body.String(), `"ok":true`) {
+			t.Fatalf("blank %s accepted: %s", action, w.Body.String())
+		}
+		if _, err := os.Stat(filepath.Join(dir, fixtureHoldID+".json")); !os.IsNotExist(err) {
+			t.Fatalf("blank %s wrote a ruling", action)
+		}
+	}
 }

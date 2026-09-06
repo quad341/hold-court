@@ -94,7 +94,7 @@ func TestLiveResultReopensUnreadUntilThatRevisionIsRead(t *testing.T) {
 func TestSaveRejectsStaleAndResolvedDecisions(t *testing.T) {
 	for _, resolved := range []bool{false, true} {
 		h, dir := newHoldFixtureHandler(t, resolved)
-		req := httptest.NewRequest(http.MethodPost, "/api/rulings", strings.NewReader(`[{"hold_id":"`+fixtureHoldID+`","action":"proceed","revision":"outdated"}]`))
+		req := httptest.NewRequest(http.MethodPost, "/api/rulings", strings.NewReader(`[{"hold_id":"`+fixtureHoldID+`","action":"proceed","note":"Proceed after resolving the stated concern","revision":"outdated"}]`))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)

@@ -74,6 +74,130 @@ def matched_run(pr_dir, head):
     return None
 
 
+def markdown_sections(text):
+    """Keep source wording; headings are the MPR review output contract."""
+    sections = {}
+    heading = None
+    lines = []
+    fenced = False
+    for line in text.splitlines():
+        if line.lstrip().startswith(('```', '~~~')):
+            fenced = not fenced
+        match = None if fenced else re.match(r'^#{1,3}\s+(.+?)\s*#*$', line)
+        if match:
+            if heading:
+                sections[heading] = '\n'.join(lines).strip()
+            heading, lines = match[1].strip().lower(), []
+        else:
+            lines.append(line)
+    if heading:
+        sections[heading] = '\n'.join(lines).strip()
+    return sections
+
+
+def artifact_text(run, name):
+    path = run / name
+    return path.read_text() if path.is_file() else ''
+
+
+def decision_context(run, decision, category, reason):
+    summary = markdown_sections(artifact_text(run, 'review-summary.md'))
+    synthesis = markdown_sections(artifact_text(run, 'synthesis-output.md'))
+    sections = {**synthesis, **summary}
+    proposed = {
+        'auto-merge': 'Merge the reviewed head through the existing merge checks.',
+        'fix-merge': 'Apply and verify the proposed fixes, then merge through the existing checks.',
+        'cherry-pick': 'Integrate the selected changes with attribution and verification.',
+        'request-changes': 'Ask the author for the changes described in the review.',
+        'close-superseded': 'Close as superseded with an explanation and attribution.',
+    }.get(category, 'No supported disposition was supplied; ask the agent to clarify before execution.')
+    body = ['## Decision requiring your response', reason,
+            '### Proposed disposition', f'**{category or "not supplied"}** — {proposed}',
+            'This is the MPR proposal, not a resolved human decision. Respond to the hold: '
+            'which path should the agent take, why, and under what conditions? The prepared '
+            'contributor message below is a draft for the agent to adapt to your guidance.']
+    disagreement = sections.get('disagreement notes')
+    body += ['### What the reviewers disagree about (synthesis)', disagreement or
+             'MPR did not provide a disagreement explanation. The individual positions below '
+             'are evidence, not an inferred reconciliation. Ask for the missing comparison if needed.']
+    for key, label in [('top findings', 'Synthesis findings'), ('correctness risks', 'Unresolved risks')]:
+        if sections.get(key):
+            body += [f'### {label}', sections[key]]
+    contract = decision.get('escalation_topic') or sections.get('escalation topic')
+    change = decision.get('critical_path_change_raw') or sections.get('critical path change')
+    body += ['### Contract / behavior change evidence']
+    if contract and contract.strip().lower() != 'no':
+        body += [str(contract)]
+    if change and change.strip().lower() not in {'n/a', 'behavior-preserving'}:
+        body += [str(change)]
+    for key, label in [('existing contract', 'Existing contract'), ('proposed contract', 'Proposed contract')]:
+        body += [f'**{label}:** ' + (sections.get(key) or
+                 'Not separately specified by MPR. Use the cited evidence above or request an explicit before/after comparison.')]
+    diagnostic_position = len(body)
+    diagnostics = []
+    body += ['### Individual reviewer positions']
+    models = decision.get('models') or {}
+    categories = (decision.get('ambiguity') or {}).get('reviewer_categories') or {}
+    reviewer_names = sorted({'qwen', 'claude', 'codex'} | set(categories) |
+                            {p.name.removesuffix('-review.md') for p in (run/'intake').glob('*-review.md')})
+    for name in reviewer_names:
+        if not re.fullmatch(r'[A-Za-z0-9_-]+', name):
+            continue
+        source = f'intake/{name}-review.md'
+        review = artifact_text(run, source)
+        parts = markdown_sections(review)
+        model = models.get(name) or {}
+        status = model.get('status', 'not recorded') if isinstance(model, dict) else str(model)
+        verdict = categories.get(name) or parts.get('category') or 'not supplied'
+        body += [f'#### {name} — {verdict}', f'Status: {status}. Source: `{source}`.']
+        if review.strip():
+            found = False
+            for key in ['reasoning', 'fix plan', 'top findings', 'correctness risks', 'escalation topics']:
+                if parts.get(key):
+                    body += [f'**{key.title()}**', parts[key]]
+                    found = True
+            if not found:
+                body += [review]
+            elif not parts.get('reasoning'):
+                body += ['No separate reasoning section was supplied; findings and plans above are the available explanation.']
+        else:
+            body += ['Reviewer output is missing. Its verdict alone does not explain a disagreement.']
+        diagnostic = artifact_text(run, f'intake/{name}-review.stderr.txt')
+        if diagnostic.strip() and (not review.strip() or status not in {'completed', 'not recorded'}):
+            diagnostics += [f'### Reviewer error: {name}', diagnostic_block(diagnostic)]
+    fix_plan = artifact_text(run, 'fix-plan.md')
+    body += ['### Proposed fix plan', fix_plan.strip() or 'No fix plan was supplied. Do not infer what should be fixed from a verdict label.']
+    # Preserve exact diagnostics when an infrastructure/precheck failure caused a hold.
+    for name in ['runner-status.json', 'ensemble-status.json', 'ambiguity.json', 'out-of-diff.json', 'docs-render.json', 'codeql-alerts.json']:
+        detail = optional_json(run/name)
+        if has_failure(detail):
+            diagnostics += [f'### Diagnostic evidence: {name}', diagnostic_block(json.dumps(detail, indent=2))]
+    for name in ['synthesis.stderr.txt', 'pr-checkout.stderr.txt', 'diff.stderr.txt', 'metadata.stderr.txt']:
+        diagnostic = artifact_text(run, name)
+        if diagnostic.strip() and (has_failure(optional_json(run/'runner-status.json')) or any(word in reason.lower() for word in ['error', 'failed', 'timeout'])):
+            diagnostics += [f'### Stage output: {name}', diagnostic_block(diagnostic)]
+    body[diagnostic_position:diagnostic_position] = diagnostics
+    return '\n\n'.join(body)
+
+
+def has_failure(value):
+    if isinstance(value, dict):
+        if str(value.get('status', '')).lower() in {'error', 'failed', 'timeout'} or str(value.get('phase', '')).lower() in {'error', 'failed'}:
+            return True
+        if value.get('error') or value.get('failed_checks') or value.get('unresolved_reviews') or value.get('exit_code', 0):
+            return True
+        return any(has_failure(item) for item in value.values())
+    if isinstance(value, list):
+        return any(has_failure(item) for item in value)
+    return isinstance(value, str) and value.lower() in {'error', 'failed', 'timeout'}
+
+
+def diagnostic_block(text):
+    # Choose a fence longer than any run in the original diagnostic.
+    fence = '`' * max(3, 1 + max((len(m.group()) for m in re.finditer(r'`+', text)), default=0))
+    return f'{fence}text\n{text.strip()}\n{fence}'
+
+
 def export_hold(repo, marker, live, record_only=True):
     notice = read_json(marker)
     if notice.get("signature") == "skip-too-large" or notice.get("reason_code") == "skip-too-large":
@@ -119,28 +243,21 @@ def export_hold(repo, marker, live, record_only=True):
     signature = notice.get("signature") or hold_class
     digest = hashlib.sha256(signature.encode()).hexdigest()[:10]
     hold_id = f"{repo.replace('/', '-')}-{number}-{head}-{digest}"
-    body = [
-        "## Decision workflow",
-        ("Saving records your decision locally. It does **not** clear the MPR hold, "
-         "post a review, close a PR, or enable merging.") if record_only else
-        "Saving and confirming sends your decision to the configured agent. Discussion requests analysis only; other actions authorize the specified PR operation on this reviewed head. Progress and replies appear in History & discussion.",
-        "## Hold reason (verbatim from MPR)", reason,
-        f"Held commit: `{head}`  \nMPR verdict: `{category or 'not available'}`",
-        f"Source run: `{run}`",
-    ]
+    body = [f"Held commit: `{head}`", f"Source run: `{run}`"]
     if resolved:
         body += ["## No longer actionable", resolved]
     prepared = run / "gh-review-body.md"
-    summary = run / "review-summary.md"
-    review = prepared if prepared.exists() else summary
-    body += ["## Prepared review", review.read_text() if review.exists() else
-             "MPR did not produce a prepared review for this hold (for example, the diff exceeded its review limit)."]
+    draft = run / "contributor-draft.md"
+    message = prepared if prepared.exists() else draft
+    body += ["## Proposed contributor message", message.read_text() if message.exists() else
+             "No contributor message draft was supplied. Ask the agent to prepare one from your response; a review summary is not an outgoing message."]
     author = ((current or {}).get("user") or {}).get("login")
     if not author:
         recorded_author = metadata.get("author") or {}
         author = recorded_author.get("login", "") if isinstance(recorded_author, dict) else recorded_author
     return {
         "author": author,
+        "decision_context_md": decision_context(run, decision, category, reason),
         "id": hold_id, "source": SOURCE, "repo": repo, "pr": number,
         "url": f"https://github.com/{repo}/pull/{number}", "class": hold_class,
         "title": f"{repo} #{number}: {metadata.get('title', 'Held PR')}",

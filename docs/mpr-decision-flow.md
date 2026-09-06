@@ -6,10 +6,10 @@ Gas City tasks and brings their acknowledgement and replies back here.
 
 | Choice | Authorized behavior | Required input |
 | --- | --- | --- |
-| Accept recommendation (`proceed`) | Inspect the prepared review for the held commit and resume the recorded MPR disposition through existing checks. `fix-merge` requires fixes and verification first. Report ambiguity instead of guessing a continuation. | Confirmation naming the PR, held commit, and verdict. |
-| Request author changes (`changes`) | Compose and post a request-changes review from the operator intent, annotations, and review context using the repository maintainer workflow. Report self-review or policy blockers. | Confirmation; annotations optional. |
-| Close PR (`close`) | Establish the rationale from context and compose an appropriate closing explanation. If unclear, ask before closing. | Confirmation; annotations optional. |
-| Discuss (`discuss`) | Investigate the question and reply in the local conversation. No GitHub comment, hold clearance, or merge is authorized. Use this to ask for revisions to our preparation too. | Confirmation; question/instructions optional. |
+| Proceed with guidance (`proceed`) | Resolve the hold using the operator response, the proposed disposition, and the evidence. Explain the selected path before carrying it out through existing checks. `fix-merge` requires fixes and verification first. Report ambiguity instead of guessing a continuation. | Response stating direction, reason, and conditions; confirmation naming the PR and held commit. |
+| Request author changes (`changes`) | Compose and post a request-changes review from the operator intent, annotations, and review context using the repository maintainer workflow. Report self-review or policy blockers. | Response to the hold and confirmation. |
+| Close PR (`close`) | Establish the rationale from context and compose an appropriate closing explanation. If unclear, ask before closing. | Response to the hold and confirmation. |
+| Discuss (`discuss`) | Investigate the question and reply in the local conversation. No GitHub comment, hold clearance, or merge is authorized. Use this to ask for revisions to our preparation too. | Question or requested investigation and confirmation. |
 | Clear choice | Remove an unsaved selection, retaining the note. No task is sent. | None. |
 
 Rulings express intent. Annotations are instructions to an agent, not final
@@ -19,14 +19,44 @@ explicit operator instruction. The agent must preserve meaning, avoid invented
 rationales, and return to discussion rather than silently choose a different
 consequential action.
 
-Missing notes are valid. For example, Close with no note asks the agent to
-establish the reason from the review and conversation. If that context is
-insufficient, it posts its interpretation and a focused question, reports
-`needs_clarification`, and takes no external action until answered. This
-transition preserves the original Close ruling and annotations in history.
-Answer through Discuss, or submit a clarified ruling when ready to authorize
-execution. The agent reads prior decisions and replies and records its
-interpretation, actual outgoing wording, and outcome in the conversation.
+Every newly saved ruling requires a response to the hold, including Proceed
+and record-only saves. A category button is not a resolution of an ambiguity.
+State which path the agent should take, why, and any conditions or required
+fixes. The browser, server, and queue hook reject blank/whitespace responses.
+Existing queued requests remain observable; this change does not erase earlier
+records or prevent replies from arriving.
+
+The MPR verdict and contributor message are proposals. Proceed with guidance
+instructs the agent to reconcile your response with the evidence and adapt the
+draft; it does not mean silently accepting every conclusion or publishing the
+draft unchanged. For example: “Proceed after fixing the silent skip and testing
+the warning; preserve the fail-closed behavior.”
+
+If that direction is still materially unclear, the agent posts its interpretation
+and a focused question, reports `needs_clarification`, and takes no external
+action until answered. The original ruling and response stay in history.
+Answer through Discuss or submit a clarified ruling when ready to authorize
+execution. The agent records its interpretation, outgoing wording, and outcome.
+
+## Evidence for the human decision
+
+The Review tab must explain the ambiguity, not merely name its category.
+The MPR exporter reads the run matching the held commit and presents:
+
+- Synthesis disagreement notes and findings: what conflicts, and how synthesis
+  reconciled it or why a human decision remains.
+- Each reviewer's verdict, reasoning, proposed fixes, and correctness risks,
+  attributed to that review's source file.
+- Contract/behavior-change evidence and existing/proposed contract sections
+  when provided. Absent before/after descriptions are explicitly marked missing.
+- Actual reviewer/stage error output and failed precheck diagnostics when
+  available; an error label without its diagnostic is insufficient evidence.
+- The proposed disposition, fix plan, and contributor-facing message draft.
+
+These are source reports, not independently verified conclusions or a newly
+invented reconciliation. Missing reviewer output or explanation is visible and
+should be requested through Discuss when necessary to decide. Historical review
+versions retain this context alongside the draft message.
 
 Save validates a content revision and generates a stable request ID. Retrying
 the same request reuses its queue entry and task identity. Existing trial

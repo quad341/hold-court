@@ -25,7 +25,8 @@ local `holdcourt.toml`, and enables two user timers:
   fifteen seconds after the previous worker run finishes.
 
 Restart `make run` after setup. Each subsequent Save previews the decisions and
-asks for confirmation before enqueueing them. Setup never replays old ruling
+requires a response to the hold and asks for confirmation before enqueueing
+them. A response is required for every action, including Proceed. Setup never replays old ruling
 files. A previously configured queue remains durable across reinstalls.
 Only enable this when you want new confirmed choices delivered to the agent.
 The [decision contract](../../docs/mpr-decision-flow.md) defines each action.
@@ -81,3 +82,10 @@ filtering, duplicate saves, changed heads, superseded decisions, acknowledgement
 replies, and late results. `make test-browser` covers the UI-to-queue path without
 running a worker or sending an agent task. These checks do not establish that a
 live agent has completed a real PR operation.
+
+The feed includes `decision_context_md` from the matched run: synthesis
+explanations, individual reviewer reasoning/fixes, contract evidence, and actual
+error diagnostics. It labels missing sources rather than inventing a comparison.
+The separately displayed contributor message is a draft to adapt to the human
+response. Previously queued requests remain readable across this validation
+change; only new enqueues require a nonblank response.

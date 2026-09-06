@@ -16,21 +16,22 @@ import (
 // Hold is one held PR awaiting a ruling, as described by a single
 // feed/<id>.json document.
 type Hold struct {
-	Author         string    `json:"author,omitempty"`
-	ID             string    `json:"id"`
-	Source         string    `json:"source"`
-	Repo           string    `json:"repo"`
-	PR             int       `json:"pr"`
-	URL            string    `json:"url"`
-	Class          string    `json:"class"`
-	Title          string    `json:"title"`
-	Question       string    `json:"question"`
-	ReviewBodyMD   string    `json:"review_body_md"`
-	Verdict        string    `json:"verdict"`
-	HeadSHA        string    `json:"head_sha"`
-	HeldAt         time.Time `json:"held_at"`
-	Resolved       bool      `json:"resolved"`
-	ResolvedReason string    `json:"resolved_reason"`
+	DecisionContextMD string    `json:"decision_context_md,omitempty"`
+	Author            string    `json:"author,omitempty"`
+	ID                string    `json:"id"`
+	Source            string    `json:"source"`
+	Repo              string    `json:"repo"`
+	PR                int       `json:"pr"`
+	URL               string    `json:"url"`
+	Class             string    `json:"class"`
+	Title             string    `json:"title"`
+	Question          string    `json:"question"`
+	ReviewBodyMD      string    `json:"review_body_md"`
+	Verdict           string    `json:"verdict"`
+	HeadSHA           string    `json:"head_sha"`
+	HeldAt            time.Time `json:"held_at"`
+	Resolved          bool      `json:"resolved"`
+	ResolvedReason    string    `json:"resolved_reason"`
 }
 
 // ParseHold decodes a single feed document. An "id" field is required.

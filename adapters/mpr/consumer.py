@@ -73,6 +73,8 @@ def publish(config, request, status, summary, thread=None):
 
 def enqueue(config, request):
     validate(request, config)
+    if not request.get('note', '').strip():
+        raise ValueError('A response to the hold is required: direction, reason, and conditions')
     spool = Path(config['spool'])
     spool.mkdir(parents=True, exist_ok=True)
     path = spool / (request['id'] + '.json')
@@ -113,7 +115,7 @@ def description(config, request):
     action = request['action']
     instructions = {
         'discuss': 'Investigate the operator question and reply in this bead. This authorizes analysis only: do not post on GitHub, alter the PR, clear MPR holds, or merge.',
-        'proceed': 'The operator accepts the prepared MPR recommendation for this exact head. Inspect the matched review and recorded verdict, then resume the supported MPR path through all existing checks. fix-merge requires applying and verifying fixes first. Do not equate a successful clear-hold exit with publication or merge: notice-only holds can produce a no-op. If the appropriate continuation is unclear, report needs_decision instead of guessing.',
+        'proceed': 'The operator supplies guidance for resolving this hold on this exact head. Follow that response to determine the disposition; a proceed code alone does not authorize blindly accepting the MPR proposal. Explain the selected path and how the response resolves the stated ambiguity. Inspect the matched review and recorded verdict, then resume the supported MPR path through all existing checks. fix-merge requires applying and verifying fixes first. Do not equate a successful clear-hold exit with publication or merge: notice-only holds can produce a no-op. If the appropriate continuation is unclear, report needs_decision instead of guessing.',
         'changes': 'The operator requests changes from the PR author. Use the annotations, prepared review, and conversation to compose a clear, courteous request-changes review. Recheck the held head, follow the repository maintainer workflow, and report the review URL. If self-review restrictions or other policy prevents this, report needs_decision.',
         'close': 'The operator requests closing this PR. Determine the rationale from the annotations, prepared review, and conversation. If the rationale is clear, compose an appropriate closing explanation and close through the repository maintainer workflow after rechecking the held head. If the rationale is unclear, ask for clarification before closing. Report the resulting PR state and comment URL.',
     }[action]
@@ -131,7 +133,7 @@ Claim this bead before starting so the UI can show acknowledgement. Read the pre
 Agent-assisted interpretation contract:
 The ruling expresses intent; annotations are instructions and context, not publication-ready correspondence. Improve grammar, tone, and clarity and compose outgoing messages without an extra wording-approval round. Deliver text verbatim only when the operator explicitly asks. Preserve the operator's meaning; do not invent reasons or silently change the consequential action.
 Read the conversation at {config['rulings']}/{request['hold_id']}.thread.json if present. Earlier original decisions are in {config['spool']}/*.json: use only entries whose request.hold_id matches this hold. Use these and the prepared review as context.
-If the intent is contradictory, unsupported, or materially unclear, pause execution and return to discussion: post your interpretation and a focused clarification question, set holdcourt.outcome=needs_clarification, and take no external action until the operator answers. Missing annotations are allowed. A close request with no note is not a blank message to publish: use existing context if sufficient, otherwise ask why it should close. Retain the original ruling and annotations; do not rewrite them to Discuss. Report your interpretation and what you did (including the actual outgoing wording and links), or what remains unclear, in the conversation.
+If the intent is contradictory, unsupported, or materially unclear, pause execution and return to discussion: post your interpretation and a focused clarification question, set holdcourt.outcome=needs_clarification, and take no external action until the operator answers. New submissions require a response to the hold, including proceed. Read the detailed ambiguity evidence, individual reviewer reasoning, fix plans, and draft message in the feed. Resolve the operator response against that evidence. If it does not actually settle the ambiguity, ask a focused clarification question. Older queued decisions may lack a response; ask for clarification rather than infer authorization. Retain the original ruling and annotations; do not rewrite them to Discuss. Report your interpretation and what you did (including the actual outgoing wording and links), or what remains unclear, in the conversation.
 
 Original operator annotations (instructions to interpret):
 {request.get('note', '')}

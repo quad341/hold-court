@@ -98,27 +98,28 @@ func New(cfg Config) (http.Handler, error) {
 // wire shape embedded in the page's #holds-data JSON island, so the server-
 // rendered fallback and the client app agree on one set of fields.
 type holdJSON struct {
-	Author           string           `json:"author"`
-	Thread           []ruling.Message `json:"thread,omitempty"`
-	ID               string           `json:"id"`
-	Title            string           `json:"title"`
-	Question         string           `json:"question"`
-	ReviewHTML       template.HTML    `json:"review_html"`
-	Class            string           `json:"class"`
-	Repo             string           `json:"repo"`
-	PR               int              `json:"pr"`
-	URL              string           `json:"url"`
-	Verdict          string           `json:"verdict"`
-	HeldAt           string           `json:"held_at"`
-	State            string           `json:"state"` // inbox | ruled | executed | stood-down
-	Unread           bool             `json:"unread"`
-	Updated          bool             `json:"updated"`
-	Revision         string           `json:"revision"`
-	ActivityRevision string           `json:"activity_revision"`
-	HeadSHA          string           `json:"head_sha"`
-	Ruling           *ruling.Ruling   `json:"ruling,omitempty"`
-	Result           *ruling.Result   `json:"result,omitempty"`
-	ResolvedReason   string           `json:"resolved_reason,omitempty"`
+	DecisionContextHTML template.HTML    `json:"decision_context_html"`
+	Author              string           `json:"author"`
+	Thread              []ruling.Message `json:"thread,omitempty"`
+	ID                  string           `json:"id"`
+	Title               string           `json:"title"`
+	Question            string           `json:"question"`
+	ReviewHTML          template.HTML    `json:"review_html"`
+	Class               string           `json:"class"`
+	Repo                string           `json:"repo"`
+	PR                  int              `json:"pr"`
+	URL                 string           `json:"url"`
+	Verdict             string           `json:"verdict"`
+	HeldAt              string           `json:"held_at"`
+	State               string           `json:"state"` // inbox | ruled | executed | stood-down
+	Unread              bool             `json:"unread"`
+	Updated             bool             `json:"updated"`
+	Revision            string           `json:"revision"`
+	ActivityRevision    string           `json:"activity_revision"`
+	HeadSHA             string           `json:"head_sha"`
+	Ruling              *ruling.Ruling   `json:"ruling,omitempty"`
+	Result              *ruling.Result   `json:"result,omitempty"`
+	ResolvedReason      string           `json:"resolved_reason,omitempty"`
 }
 
 // folderJSON is one entry in the folders pane: either a selectable folder
@@ -266,6 +267,11 @@ func (s *server) buildHoldView(h *feed.Hold) (holdJSON, error) {
 		return holdJSON{}, fmt.Errorf("server: hold %s: %w", h.ID, err)
 	}
 
+	contextHTML, err := renderMarkdown(h.DecisionContextMD)
+	if err != nil {
+		return holdJSON{}, fmt.Errorf("server: hold context %s: %w", h.ID, err)
+	}
+
 	unread, err := s.cfg.Store.IsUnread(s.cfg.User, h.ID)
 	if err != nil {
 		return holdJSON{}, fmt.Errorf("server: hold %s: %w", h.ID, err)
@@ -327,27 +333,28 @@ func (s *server) buildHoldView(h *feed.Hold) (holdJSON, error) {
 	}
 	updated := readRevision != "" && readRevision != activityRevision
 	return holdJSON{
-		ID:               h.ID,
-		Thread:           thread,
-		Title:            strings.TrimPrefix(h.Title, fmt.Sprintf("%s #%d: ", h.Repo, h.PR)),
-		Question:         h.Question,
-		ReviewHTML:       reviewHTML,
-		Class:            h.Class,
-		Repo:             h.Repo,
-		PR:               h.PR,
-		URL:              h.URL,
-		Verdict:          h.Verdict,
-		HeldAt:           h.HeldAt.Format(time.RFC3339),
-		State:            holdState(s.cfg.RulingsDir, h),
-		Unread:           unread || updated,
-		Updated:          updated,
-		Revision:         revision,
-		ActivityRevision: activityRevision,
-		Author:           h.Author,
-		HeadSHA:          h.HeadSHA,
-		Ruling:           rl,
-		Result:           result,
-		ResolvedReason:   h.ResolvedReason,
+		ID:                  h.ID,
+		Thread:              thread,
+		Title:               strings.TrimPrefix(h.Title, fmt.Sprintf("%s #%d: ", h.Repo, h.PR)),
+		Question:            h.Question,
+		ReviewHTML:          reviewHTML,
+		Class:               h.Class,
+		Repo:                h.Repo,
+		PR:                  h.PR,
+		URL:                 h.URL,
+		Verdict:             h.Verdict,
+		HeldAt:              h.HeldAt.Format(time.RFC3339),
+		State:               holdState(s.cfg.RulingsDir, h),
+		Unread:              unread || updated,
+		Updated:             updated,
+		Revision:            revision,
+		ActivityRevision:    activityRevision,
+		DecisionContextHTML: contextHTML,
+		Author:              h.Author,
+		HeadSHA:             h.HeadSHA,
+		Ruling:              rl,
+		Result:              result,
+		ResolvedReason:      h.ResolvedReason,
 	}, nil
 }
 
@@ -502,6 +509,10 @@ func (s *server) handleSaveRulings(w http.ResponseWriter, r *http.Request) {
 		current[view.ID] = view
 	}
 	for _, item := range reqs {
+		if strings.TrimSpace(item.Note) == "" {
+			results = append(results, rulingResponse{HoldID: item.HoldID, Error: "Respond to the hold before saving: what should the agent do, why, and under what conditions?"})
+			continue
+		}
 		view, found := current[item.HoldID]
 		if !found || view.State == "stood-down" || view.ResolvedReason != "" {
 			results = append(results, rulingResponse{HoldID: item.HoldID, Error: "Hold is no longer actionable; open a current hold."})

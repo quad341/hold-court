@@ -49,14 +49,15 @@
 		<p class="hold-author">Author: {{if .Author}}@{{.Author}}{{else}}unknown{{end}}</p>
 		<p class="question">{{.Question}}</p>
 		<p><a href="{{.URL}}" target="_blank" rel="noopener">{{.Repo}} #{{.PR}}</a> &middot; {{.State}}</p>
+		<div class="decision-context">{{if .DecisionContextHTML}}{{.DecisionContextHTML}}{{else}}No detailed ambiguity evidence was supplied. Ask the agent to explain the hold before resolving it.{{end}}</div>
 		<div class="review-body">{{.ReviewHTML}}</div>
 		</div>
 		<div id="ruling-bar">
-			<button type="button" data-action="proceed">p: Accept recommendation</button>
+			<button type="button" data-action="proceed">p: Proceed with guidance</button>
 			<button type="button" data-action="changes">c: Request author changes</button>
 			<button type="button" data-action="close">x: Close PR</button>
 			<button type="button" data-action="discuss">d: discuss</button>
-			<div><textarea id="note-input" rows="2" placeholder="Instructions or context for the agent (optional; i)"></textarea></div>
+			<div><textarea id="note-input" rows="2" placeholder="Your response to this hold: direction, reason, conditions (required; i)"></textarea></div>
 			<button type="button" id="save-btn">s: save pending rulings</button>
 		</div>
 		{{else}}

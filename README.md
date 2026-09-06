@@ -145,14 +145,20 @@ History starts when this server observes a hold; it cannot recover previously
 overwritten source files. Your own saves do not count as incoming activity.
 Agent acknowledgement, replies, and review changes do.
 
+The Review tab puts decision evidence ahead of the proposed contributor message:
+the synthesis's disagreement explanation, each reviewer's reasoning and fixes,
+contract-change evidence, and relevant errors. Missing explanations or old/new
+contract descriptions are explicitly marked; use Discuss to request what you
+need. A verdict such as `fix-merge` alone does not explain what needs fixing.
+
 Without an `on_ruling` hook, the app explicitly runs in **record-only** mode:
 actions save local decisions only. With the MPR connection, Save previews the
 PR, reviewed head, intended action, and annotations before sending. **Discuss** requests
-analysis and a reply here. **Accept recommendation** authorizes continuation of
-the recorded MPR verdict through its checks; it is not an unconditional merge.
+analysis and a reply here. **Proceed with guidance** asks the agent to resolve the hold using your response
+and the displayed evidence, then carry out that direction through its checks.
 **Request author changes** and **Close PR** ask the agent to compose appropriate
-messages from your intent, annotations, and review context. Notes are optional
-instructions, not publication-ready text. The agent improves wording and tone;
+messages from your intent, annotations, and review context. Every action requires a response to the hold: direction, reason, and conditions.
+That response is guidance, not publication-ready text. The agent improves wording and tone;
 verbatim delivery requires an explicit instruction. Unclear intent returns as
 **Needs clarification**, with a question and the original ruling preserved.
 See the [decision contract](docs/mpr-decision-flow.md) for execution and status
