@@ -23,6 +23,7 @@ type feedCache struct {
 
 	mu       sync.Mutex
 	holds    []*feed.Hold
+	version  string
 	err      error
 	lastScan time.Time
 	dirty    bool
@@ -38,14 +39,18 @@ func newFeedCache(dir string, interval time.Duration) *feedCache {
 // error: the adapter that owns the directory may not have run yet, and the
 // interval rescan (or a later fsnotify event, once the directory exists) is
 // what's expected to pick it up once it does.
+//
+// A missing directory scans as the version of an empty feed, so the
+// version is always a well-formed string clients can compare.
 func (c *feedCache) rescan() {
-	holds, err := feed.ScanDir(c.dir)
+	holds, version, err := feed.Scan(c.dir)
 	if err != nil && errors.Is(err, fs.ErrNotExist) {
 		holds, err = nil, nil
+		version = feed.EmptyVersion
 	}
 
 	c.mu.Lock()
-	c.holds, c.err, c.lastScan, c.dirty = holds, err, time.Now(), false
+	c.holds, c.version, c.err, c.lastScan, c.dirty = holds, version, err, time.Now(), false
 	c.mu.Unlock()
 }
 
@@ -55,9 +60,10 @@ func (c *feedCache) markDirty() {
 	c.mu.Unlock()
 }
 
-// snapshot returns the current holds, re-scanning first if the cache was
-// marked dirty (an fsnotify event fired) or the interval has elapsed.
-func (c *feedCache) snapshot() ([]*feed.Hold, error) {
+// snapshot returns the current holds and the feed version they were
+// scanned from, re-scanning first if the cache was marked dirty (an
+// fsnotify event fired) or the interval has elapsed.
+func (c *feedCache) snapshot() ([]*feed.Hold, string, error) {
 	c.mu.Lock()
 	stale := c.dirty || time.Since(c.lastScan) >= c.interval
 	c.mu.Unlock()
@@ -69,7 +75,16 @@ func (c *feedCache) snapshot() ([]*feed.Hold, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	// Callers sort their snapshot; never expose the shared slice for mutation.
-	return append([]*feed.Hold(nil), c.holds...), c.err
+	return append([]*feed.Hold(nil), c.holds...), c.version, c.err
+}
+
+// refresh discards whatever the cache holds and re-reads the feed
+// directory now, regardless of fsnotify state or interval. It backs the
+// operator's "Rebuild cache" action: re-reading data is always safe, so
+// there is nothing to guard beyond the scan itself.
+func (c *feedCache) refresh() ([]*feed.Hold, string, error) {
+	c.markDirty()
+	return c.snapshot()
 }
 
 // watch attaches an fsnotify watch on the cache's directory and marks the

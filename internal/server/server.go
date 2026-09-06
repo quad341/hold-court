@@ -87,6 +87,7 @@ func New(cfg Config) (http.Handler, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.handleIndex)
 	mux.HandleFunc("GET /api/holds", s.handleHolds)
+	mux.HandleFunc("POST /api/holds/rescan", s.handleRescan)
 	mux.HandleFunc("GET /api/holds/{id}/history", s.handleHistory)
 	mux.HandleFunc("POST /api/holds/{id}/read", s.handleSetRead)
 	mux.HandleFunc("POST /api/rulings", s.handleSaveRulings)
@@ -143,10 +144,32 @@ type pageData struct {
 	ConsumerDescription string
 }
 
-func (s *server) holdViews() ([]holdJSON, error) {
-	holds, err := s.feed.snapshot()
+// holdsDocument is the wire shape of GET /api/holds and POST
+// /api/holds/rescan. Version is the feed's content version
+// (feed.Scan); the response ETag covers the whole document, including
+// per-user read state and rulings, so the two change independently: a
+// new ETag with the same version means "your state moved", a new version
+// means "the feed itself changed".
+type holdsDocument struct {
+	Version string       `json:"version"`
+	Holds   []holdJSON   `json:"holds"`
+	Folders []folderJSON `json:"folders"`
+}
+
+// holdViews renders every hold in the feed (newest first) and returns the
+// feed version the snapshot came from. refresh forces the feed cache to
+// re-read the directory first.
+func (s *server) holdViews(refresh bool) ([]holdJSON, string, error) {
+	var holds []*feed.Hold
+	var version string
+	var err error
+	if refresh {
+		holds, version, err = s.feed.refresh()
+	} else {
+		holds, version, err = s.feed.snapshot()
+	}
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	sort.SliceStable(holds, func(i, j int) bool { return holds[i].HeldAt.After(holds[j].HeldAt) })
 
@@ -154,23 +177,32 @@ func (s *server) holdViews() ([]holdJSON, error) {
 	for _, h := range holds {
 		v, err := s.buildHoldView(h)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		views = append(views, v)
 	}
-	return views, nil
+	return views, version, nil
 }
 
 func (s *server) handleHolds(w http.ResponseWriter, r *http.Request) {
-	views, err := s.holdViews()
+	s.writeHoldsDocument(w, r, false)
+}
+
+// handleRescan is the operator's "Rebuild cache": it bypasses the feed
+// cache, re-reads the feed directory, and returns the resulting document
+// in full (never 304) so one round trip both invalidates and refills the
+// client's cache. It only reads data, so it is always safe to call.
+func (s *server) handleRescan(w http.ResponseWriter, r *http.Request) {
+	s.writeHoldsDocument(w, r, true)
+}
+
+func (s *server) writeHoldsDocument(w http.ResponseWriter, r *http.Request, refresh bool) {
+	views, version, err := s.holdViews(refresh)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	data, err := json.Marshal(struct {
-		Holds   []holdJSON   `json:"holds"`
-		Folders []folderJSON `json:"folders"`
-	}{views, buildFolders(views)})
+	data, err := json.Marshal(holdsDocument{Version: version, Holds: views, Folders: buildFolders(views)})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -178,7 +210,7 @@ func (s *server) handleHolds(w http.ResponseWriter, r *http.Request) {
 	etag := fmt.Sprintf(`"%x"`, sha256.Sum256(data))
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("ETag", etag)
-	if r.Header.Get("If-None-Match") == etag {
+	if !refresh && r.Header.Get("If-None-Match") == etag {
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
@@ -198,7 +230,7 @@ func (s *server) handleHistory(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	views, err := s.holdViews()
+	views, _, err := s.holdViews(false)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -512,7 +544,7 @@ func (s *server) handleSaveRulings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	results := make([]rulingResponse, 0, len(reqs))
-	views, err := s.holdViews()
+	views, _, err := s.holdViews(false)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -568,7 +600,7 @@ func (s *server) handleSaveRulings(w http.ResponseWriter, r *http.Request) {
 			if err := s.cfg.Store.MarkReadRevision(s.cfg.User, item.HoldID, view.ActivityRevision, time.Now()); err != nil {
 				res.Error = "Decision saved, but read acknowledgement failed: " + err.Error()
 			}
-			updated, err := s.holdViews()
+			updated, _, err := s.holdViews(false)
 			if err == nil {
 				for _, h := range updated {
 					if h.ID == item.HoldID {
