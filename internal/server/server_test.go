@@ -214,7 +214,7 @@ func TestServeHTTP_HoldStateRuled(t *testing.T) {
 	writeRulingFixture(t, rulingsDir)
 
 	body := getIndexBody(t, h)
-	if !strings.Contains(body, `"state":"ruled"`) {
+	if !strings.Contains(body, `"state":"pending"`) {
 		t.Errorf("expected ruled hold to render state \"ruled\"; body=%s", body)
 	}
 }

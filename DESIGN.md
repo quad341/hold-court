@@ -45,9 +45,9 @@ Three panes, with the list and reading pane stacked so long titles have room:
 +------------+---------------------------------------------------------+
 | FOLDERS    | HOLD LIST: full titles, wrapping when needed            |
 | Inbox  12  | > Push-tier relaxation for release branches             |
-| Ruled   4  |   owner/repo #5795 · @author · held date                           |
+| Pending 4 |   owner/repo #5795 · @author · held date                  |
 | Executed 6 |---------------------------------------------------------|
-| ----       | READING PANE: question, prepared review, saved decision  |
+| Updates 2 | READING PANE: question, prepared review, saved decision  |
 | guard    2 | and result. History & discussion has a separate tab.     |
 | policy   3 |                                                         |
 | scope    5 | [ruling bar + note + explicit execution mode]           |
@@ -56,8 +56,17 @@ Three panes, with the list and reading pane stacked so long titles have room:
 
 - Unread semantics come from email: a hold you have not opened is bold; a hold
   updated since you last read it (new head, new discussion) re-bolds.
-- Folders are virtual: state folders (inbox / ruled / executed / stood-down)
-  and class folders (from the feed's `class` field).
+- Folders are virtual: state folders (inbox / pending / executed / stood-down),
+  an Unread updates view for submitted holds, and class folders (from the feed's `class` field).
+- A saved ruling (including Discuss) moves its row from Inbox to Pending.
+  Queued, in-progress, discussion, clarification, and failed work stay Pending
+  until execution is reported. Unsaved choices do not move the row.
+- Unread updates overlaps the state folders: submitted holds with unseen
+  incoming activity appear there, including completion. Untouched arrivals
+  remain in Inbox. Counts derive from persisted read revisions, survive reloads,
+  and exclude the operator's own saves. Reading an update removes its row;
+  a subsequent reply adds it again. Moving a row never replaces the document
+  or draft currently open in the reading pane.
 - The reading header shows the title, author, operative question, and PR link.
   Review and History & discussion have separate tabs. The action area stays
   docked below the scrolling content; both pane dividers resize.
@@ -103,9 +112,9 @@ mirrors the count (`s` to commit), so partial work is never silently lost.
 
 The browser polls `/api/holds` every five seconds using ETag revalidation.
 Updates preserve selection, scroll, and the textarea DOM. Changed content for
-the active hold is offered through Show update; other changes appear in Updates.
+the active hold is offered through Show update; unseen incoming activity on submitted holds appears in Unread updates.
 Read acknowledgements include the displayed content revision, so a new result
-cannot be swallowed by a delayed acknowledgement of an earlier view. Pending
+cannot be swallowed by a delayed acknowledgement of an earlier view. Unsaved
 rulings and notes are backed up to local storage for the current server origin.
 
 The MPR action meanings and discussion lifecycle need an explicit consumer

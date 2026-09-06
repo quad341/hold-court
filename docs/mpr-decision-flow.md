@@ -93,8 +93,15 @@ the conversation without overwriting a newer decision's status. Reading a
 reply does not acknowledge a later reply. Saving a question is not itself an
 incoming update.
 
-The browser polls every five seconds. Review changes, acknowledgement, and
-replies appear in Updates without replacing the review or note being read.
+Saving a decision, including Discuss, moves the hold from Inbox to Pending.
+It stays Pending through agent replies, clarification, and failures until an
+executed result moves it to Executed. Unsaved choices stay in Inbox.
+
+The browser polls every five seconds. Review changes, acknowledgements,
+replies, and completion on submitted holds appear in Unread updates without
+replacing the review or note being read. This view survives reloads and excludes
+new untouched holds and the operator's own saves. Reading an update removes
+its row while keeping the document open; a later reply adds it again.
 Choose Show update, then History & discussion to read the conversation or
 expand previously observed review versions. History is an observation log in
 SQLite; it starts when this server sees each revision and cannot recover
