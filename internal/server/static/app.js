@@ -74,12 +74,18 @@
 		if (state.filterQuery.trim()) {
 			var query = state.filterQuery.trim().toLowerCase();
 			var authorTerms = [];
+			var prTerms = [];
 			var text = query.replace(/(?:^|\s)author:([^\s]+)/g, function (_, author) {
 				authorTerms.push(author.replace(/^@/, '')); return ' ';
+			}).replace(/(?:^|\s)(?:pr:#?|#)([0-9]+)(?=\s|$)/g, function (_, pr) {
+				prTerms.push(Number(pr)); return ' ';
 			}).trim();
 			list = list.filter(function (h) {
 				var author = (h.author || '').toLowerCase();
+				if (!prTerms.every(function (term) { return Number(h.pr) === term; })) return false;
+				if (state.searchField === 'pr' && text && (!/^[0-9]+$/.test(text) || Number(h.pr) !== Number(text))) return false;
 				if (!authorTerms.every(function (term) { return author === term; })) return false;
+				if (state.searchField === 'pr') return true;
 				if (state.searchField === 'author') return author.indexOf(text.replace(/^@/, '')) !== -1;
 				return [h.title, h.question, h.class, h.repo, h.pr, author].some(function (value) {
 					return String(value || '').toLowerCase().indexOf(text) !== -1;
@@ -125,11 +131,12 @@
 		state.matches = state.filterQuery.trim() ? list.map(function (_, i) { return i; }) : [];
 		var folder = folders.find(function (f) { return f.id === state.folder; });
 		var scope = folder ? folder.label : state.folder === 'updates' ? 'Unread updates' : state.folder;
-		var fields = state.searchField === 'author' ? 'author' : 'title, question, repo, PR number, class, author';
+		var fields = state.searchField === 'author' ? 'author' : state.searchField === 'pr' ? 'PR number (exact match)' : 'title, question, repo, PR number, class, author';
 		searchSummary.textContent = scope + ' · ' + list.length + ' of ' + folderHolds().length + ' holds · ' +
 			(state.filterQuery.trim() ? 'Filter: “' + state.filterQuery.trim() + '” · ' : '') + fields +
 			(state.searchField === 'summary' ? ' (review and history excluded)' : '') +
-			(/(?:^|\s)author:/i.test(state.filterQuery) ? ' · author: matches an exact login' : '');
+			(/(?:^|\s)author:/i.test(state.filterQuery) ? ' · author: matches an exact login' : '') +
+			(/(?:^|\s)(?:pr:|#)/i.test(state.filterQuery) ? ' · pr: / # matches an exact PR number' : '');
 		document.getElementById('clear-search').disabled = !state.filterQuery;
 		var html = list
 			.map(function (h, i) {
