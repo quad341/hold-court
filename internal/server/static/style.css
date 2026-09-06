@@ -224,3 +224,9 @@ body {
 #cheatsheet-overlay table { border-collapse: collapse; }
 #cheatsheet-overlay td { padding: 0.15rem 0.75rem 0.15rem 0; vertical-align: top; }
 #cheatsheet-overlay td:first-child { font-weight: bold; white-space: nowrap; }
+
+#search-bar { display: flex; flex: 0 0 auto; align-items: center; flex-wrap: wrap; gap: 0.5rem; padding: 0.5rem 0.75rem; border-bottom: 2px solid var(--border); }
+#search-bar input, #search-bar select, #search-bar button { font: inherit; }
+#search-input { flex: 1 1 18rem; min-width: 10rem; }
+#search-summary { flex-basis: 100%; font-size: 0.85em; }
+.hold-author { font-weight: normal; }

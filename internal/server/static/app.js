@@ -15,6 +15,7 @@
 		pending: {}, // holdID -> {action, note}
 		drafts: {}, // holdID -> note text typed via 'i' before an action is chosen
 		filterQuery: "",
+		searchField: "summary",
 		matches: [],
 		matchCursor: -1,
 		pendingG: false,
@@ -32,7 +33,10 @@
 	var noticeEl = document.getElementById("notice");
 	var liveEl = document.getElementById("live-status");
 	var activityEl = document.getElementById("activity-button");
-	var displayedRevision = "";
+	var searchInput = document.getElementById('search-input');
+ var searchField = document.getElementById('search-field');
+ var searchSummary = document.getElementById('search-summary');
+ var displayedRevision = "";
 	var displayedActivityRevision = "";
 	var readingTab = "review";
 
@@ -52,7 +56,7 @@
 	} catch (_) { notice("Could not restore saved drafts."); }
 	holds.forEach(function (h) { if (h.updated) state.updates[h.id] = true; });
 
-	function visibleHolds() {
+	function folderHolds() {
 		var list = holds.filter(function (h) {
 			if (h.id === state.retained) return true;
 			if (state.folder === "updates") return !!state.updates[h.id];
@@ -61,15 +65,24 @@
 			}
 			return h.state === state.folder;
 		});
-		if (state.filterQuery) {
-			var q = state.filterQuery.toLowerCase();
+		return list;
+	}
+
+	function visibleHolds() {
+		var list = folderHolds();
+		if (state.filterQuery.trim()) {
+			var query = state.filterQuery.trim().toLowerCase();
+			var authorTerms = [];
+			var text = query.replace(/(?:^|\s)author:([^\s]+)/g, function (_, author) {
+				authorTerms.push(author.replace(/^@/, '')); return ' ';
+			}).trim();
 			list = list.filter(function (h) {
-				return (
-					h.title.toLowerCase().indexOf(q) !== -1 ||
-					h.question.toLowerCase().indexOf(q) !== -1 ||
-					h.class.toLowerCase().indexOf(q) !== -1 ||
-					h.repo.toLowerCase().indexOf(q) !== -1
-				);
+				var author = (h.author || '').toLowerCase();
+				if (!authorTerms.every(function (term) { return author === term; })) return false;
+				if (state.searchField === 'author') return author.indexOf(text.replace(/^@/, '')) !== -1;
+				return [h.title, h.question, h.class, h.repo, h.pr, author].some(function (value) {
+					return String(value || '').toLowerCase().indexOf(text) !== -1;
+				});
 			});
 		}
 		return list;
@@ -106,6 +119,20 @@
 		var list = visibleHolds();
 		if (state.cursor >= list.length) state.cursor = Math.max(0, list.length - 1);
 
+		state.matches = state.filterQuery.trim() ? list.map(function (_, i) { return i; }) : [];
+		var folder = folders.find(function (f) { return f.id === state.folder; });
+		var scope = folder ? folder.label : state.folder === 'updates' ? 'Updates' : state.folder;
+		var retained = byID[state.retained];
+		if (retained && (state.folder === 'updates' ? !state.updates[retained.id] :
+			state.folder.indexOf('class:') === 0 ? retained.class !== state.folder.slice(6) : retained.state !== state.folder)) {
+			scope += ' + retained selection';
+		}
+		var fields = state.searchField === 'author' ? 'author' : 'title, question, repo, PR number, class, author';
+		searchSummary.textContent = scope + ' · ' + list.length + ' of ' + folderHolds().length + ' holds · ' +
+			(state.filterQuery.trim() ? 'Filter: “' + state.filterQuery.trim() + '” · ' : '') + fields +
+			(state.searchField === 'summary' ? ' (review and history excluded)' : '') +
+			(/(?:^|\s)author:/i.test(state.filterQuery) ? ' · author: matches an exact login' : '');
+		document.getElementById('clear-search').disabled = !state.filterQuery;
 		var html = list
 			.map(function (h, i) {
 				var classes = [];
@@ -117,7 +144,7 @@
 				return (
 					'<li class="' + classes.join(" ") + '" data-hold-id="' + escapeHTML(h.id) + '">' +
 					dot + '<span class="hold-title">' + escapeHTML(h.title) + '</span>' +
-					'<span class="hold-meta">' + escapeHTML(h.repo) + ' #' + h.pr + ' · ' + escapeHTML(age) +
+					'<span class="hold-meta">' + escapeHTML(h.repo) + ' #' + h.pr + ' · ' + (h.author ? '@' + escapeHTML(h.author) : 'Author unknown') + ' · ' + escapeHTML(age) +
 					(state.updates[h.id] ? ' · <span class="activity-tag">' + (h.result && h.result.status === 'reply_ready' ? 'Reply ready' : 'Updated') + '</span>' : '') + '</span></li>'
 				);
 			})
@@ -159,6 +186,7 @@
 		readingEl.innerHTML =
 			'<div id="reading-content"><button id="show-update" type="button" hidden>New activity on this hold — show update</button>' +
 			'<h1>' + escapeHTML(hold.title) + "</h1>" +
+			'<p class="hold-author">Author: ' + (hold.author ? '@' + escapeHTML(hold.author) : 'unknown') + '</p>' +
 			'<p class="question">' + escapeHTML(hold.question) + "</p>" +
 			'<p><a href="' + escapeHTML(hold.url) + '" target="_blank" rel="noopener">' +
 			escapeHTML(hold.repo) + " #" + hold.pr + "</a> &middot; " + escapeHTML(hold.state) + "</p>" +
@@ -244,7 +272,6 @@
 		state.retained = null;
 		state.folder = id;
 		state.cursor = 0;
-		state.filterQuery = "";
 		state.matches = [];
 		state.matchCursor = -1;
 		renderAll();
@@ -418,6 +445,8 @@
 	}
 
 	function applyFilter(query) {
+		saveNoteDraft();
+		state.retained = null;
 		state.filterQuery = query;
 		state.cursor = 0;
 		var list = visibleHolds();
@@ -437,10 +466,15 @@
 	}
 
 	function openFilterPrompt() {
-		var q = window.prompt("filter/search holds:", state.filterQuery);
-		if (q === null) return;
-		applyFilter(q);
+		searchInput.focus(); searchInput.select();
 	}
+
+	document.getElementById('search-bar').addEventListener('submit', function (ev) { ev.preventDefault(); });
+	searchInput.addEventListener('input', function () { applyFilter(searchInput.value); });
+	searchField.addEventListener('change', function () { state.searchField = searchField.value; applyFilter(searchInput.value); });
+	document.getElementById('clear-search').addEventListener('click', function () {
+		searchInput.value = ''; applyFilter(''); searchInput.focus();
+	});
 
 	function scrollReading(dir) {
 		var content = document.getElementById('reading-content');
@@ -496,7 +530,7 @@
 	document.addEventListener("keydown", function (ev) {
 		var typingInField =
 			document.activeElement &&
-			(document.activeElement.tagName === "TEXTAREA" || document.activeElement.tagName === "INPUT");
+			(document.activeElement.tagName === "TEXTAREA" || document.activeElement.tagName === "INPUT" || document.activeElement.tagName === "SELECT");
 
 		if (typingInField) {
 			if (ev.key === "Escape") {
