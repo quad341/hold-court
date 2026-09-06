@@ -91,7 +91,7 @@ func New(cfg Config) (http.Handler, error) {
 	mux.HandleFunc("POST /api/holds/{id}/read", s.handleSetRead)
 	mux.HandleFunc("POST /api/rulings", s.handleSaveRulings)
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(staticSub)))
-	return mux, nil
+	return gzipHandler(mux), nil
 }
 
 // holdJSON is both the per-hold view model for the index template and the
