@@ -69,7 +69,7 @@ for name, command, interval in [
 subprocess.run([tools['systemctl'],'--user','daemon-reload'],check=True)
 subprocess.run([tools['systemctl'],'--user','enable','--now','hold-court-mpr-feed.timer','hold-court-mpr-worker.timer'],check=True)
 hook = [sys.executable,str(base/'consumer.py'),'enqueue','--config',str(base/'consumer.json')]
-description = f'Saving sends a task to {args.target}. Discuss requests analysis and a reply here. Other choices authorize the specified PR action on the reviewed head; your annotations guide the agent, which writes appropriate messages and asks here when intent is unclear. Verbatim wording is used only when you explicitly request it.'
+description = f'Saving sends a task to {args.target}. Discuss requests analysis and a reply here. Other choices authorize the specified PR action on the reviewed head; your required response to the hold guides the agent, which writes appropriate messages and asks here when intent is unclear. Verbatim wording is used only when you explicitly request it.'
 text = '\n'.join([f'feed = {json.dumps(config["feed"])}',f'rulings = {json.dumps(consumer["rulings"])}',
                   f'on_ruling = {json.dumps(hook)}',f'consumer_description = {json.dumps(description)}',''])
 configuration = ROOT/'holdcourt.toml'

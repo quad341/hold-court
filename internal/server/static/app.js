@@ -166,7 +166,7 @@
 				var active = pending && pending.action === action ? "active" : "";
 				return (
 					'<button type="button" class="' + active + '" data-action="' + action + '">' +
-					key + ": " + ({proceed:"Accept recommendation",changes:"Request author changes",close:"Close PR",discuss:"Discuss"}[action]) + "</button>"
+					key + ": " + ({proceed:"Proceed with guidance",changes:"Request author changes",close:"Close PR",discuss:"Discuss"}[action]) + "</button>"
 				);
 			})
 			.join(" ");
@@ -193,12 +193,12 @@
 			'<div id="latest-status">' + latestStatus(hold) + '</div>' +
 			'<div class="history-tabs"><button data-tab="review">Review</button><button data-tab="history">History &amp; discussion</button></div>' +
 			'<div id="reading-tab">' +
-			'<div class="review-body">' + hold.review_html + "</div></div></div>" +
+			'<div class="decision-context">' + (hold.decision_context_html || '<p>No detailed ambiguity evidence was supplied. Ask the agent to explain the hold before resolving it.</p>') + '</div><div class="review-body">' + hold.review_html + "</div></div></div>" +
 			 '<div id="ruling-bar">' +
 			'<p class="execution-mode">' + (recordOnly ? 'Record-only: saving does not send anything to MPR, an agent, or GitHub.' : escapeHTML(consumerDescription || 'Consumer configured: saving invokes the configured hook. Its policy determines external actions.')) + '</p>' +
 			actionHelp() + rulingButtons(hold) +
 			'<button type="button" id="clear-ruling">Clear choice</button>' +
-			'<div><textarea id="note-input" rows="2" placeholder="Instructions or context for the agent (optional; i)">' +
+			'<div><textarea id="note-input" rows="2" placeholder="Your response to this hold: direction, reason, conditions (required; i)">' +
 			escapeHTML(note) +
 			"</textarea></div>" +
 			'<button type="button" id="save-btn">s: save pending rulings</button>' +
@@ -234,7 +234,7 @@
 				var versions = entries.map(function (entry) {
 					var data = entry.data;
 					var label = entry.kind === 'review' ? 'Review version' : entry.kind === 'decision' ? 'Decision: ' + data.action : entry.kind === 'discussion' ? 'Conversation updated' : 'Consumer: ' + data.status;
-					var body = entry.kind === 'review' ? (data.question + '\n\n' + data.review_body_md) : entry.kind === 'decision' ? data.note : entry.kind === 'discussion' ? data.map(function (m) { return m.author + ': ' + m.body; }).join('\n\n') : data.summary;
+					var body = entry.kind === 'review' ? (data.question + '\n\n' + (data.decision_context_md || '') + '\n\n' + data.review_body_md) : entry.kind === 'decision' ? data.note : entry.kind === 'discussion' ? data.map(function (m) { return m.author + ': ' + m.body; }).join('\n\n') : data.summary;
 					return '<details class="history-entry"><summary>' + escapeHTML(entry.at + ' · ' + label) + '</summary><pre>' + escapeHTML(body || '') + '</pre></details>';
 				}).join('');
 				target.innerHTML = '<h2>Conversation</h2>' + (conversation || '<p>No messages yet.</p>') + '<h2>Observed history</h2><p>Newest first. Expand a version to read it. History starts when this server first observes the hold.</p>' + versions;
@@ -243,7 +243,7 @@
 
 	function actionHelp() {
 		return '<details class="action-help"><summary>What do these decisions mean?</summary><dl>' +
-			'<dt>Accept recommendation (proceed)</dt><dd>Record agreement with the prepared recommendation. This does not itself mean “merge” or “publish”; the consumer must define that policy.</dd>' +
+			'<dt>Proceed with guidance (proceed)</dt><dd>Resolve the hold with your response: state which proposed path to take, why, and any required fixes or conditions. The agent adapts the draft message and asks if your direction is unclear.</dd>' +
 			'<dt>Request author changes</dt><dd>Ask the agent to request author changes, using your annotations and the review to compose the message. Use Discuss to revisit our own preparation.</dd>' +
 			'<dt>Close</dt><dd>Ask the agent to close the PR with an appropriate explanation. If the rationale is unclear, it returns a clarification question before acting.</dd>' +
 			'<dt>Discuss</dt><dd>Ask the configured agent to investigate or revise our preparation and reply in History &amp; discussion. In record-only mode, the question stays local.</dd>' +
@@ -355,10 +355,14 @@
 			return { hold_id: id, action: submitted[id].action, note: submitted[id].note || "", revision: submitted[id].revision || "" };
 		});
 		if (!items.length) return;
+		if (items.some(function (item) { return !item.note.trim(); })) {
+			notice('Respond to each hold before saving: what should the agent do, why, and under what conditions?');
+			return;
+		}
 		if (!recordOnly) {
 			var preview = items.map(function (item) {
 				var hold = byID[item.hold_id];
-				return item.action.toUpperCase() + ': ' + hold.repo + ' #' + hold.pr + '\nHead: ' + hold.head_sha + '\nMPR recommendation: ' + (hold.verdict || 'unspecified') + '\nAnnotations for the agent: ' + (item.note || '(none; use context or ask for clarification)');
+				return item.action.toUpperCase() + ': ' + hold.repo + ' #' + hold.pr + '\nHead: ' + hold.head_sha + '\nProposed MPR disposition: ' + (hold.verdict || 'unspecified') + '\nAnnotations for the agent: ' + (item.note || '(none; use context or ask for clarification)');
 			}).join('\n\n');
 			if (!window.confirm((consumerDescription || 'Send to the configured consumer?') + '\n\n' + preview + '\n\nSend these decisions?')) return;
 		}

@@ -66,6 +66,26 @@ class ExportTests(unittest.TestCase):
         self.refresh()
         self.assertEqual(self.docs()[0]['author'], '')
 
+    def test_context_preserves_disagreement_fixes_contracts_and_errors(self):
+        (self.run/'intake').mkdir()
+        (self.run/'intake/claude-review.md').write_text('## Category\nfix-merge\n## Reasoning\nThe cleanup silently skips work.\n## Fix Plan\nEmit a warning in cleanup.go and test it.')
+        (self.run/'intake/codex-review.md').write_text('## Category\nauto-merge\n## Reasoning\nThe skip is safe and can be repaired later.')
+        (self.run/'intake/qwen-review.stderr.txt').write_text('runner timed out waiting for model output')
+        (self.run/'review-summary.md').write_text('## Disagreement Notes\nClaude requires a warning first; Codex accepts a follow-up.\n## Existing Contract\nSilent skip returns success.\n## Proposed Contract\nSkip emits a warning.')
+        self.put(self.run/'review-decision.json', {'category':'fix-merge', 'models':{'qwen':{'status':'failed'}}, 'ambiguity':{'reviewer_categories':{'claude':'fix-merge','codex':'auto-merge'}}})
+        self.refresh()
+        context = self.docs()[0]['decision_context_md']
+        for evidence in ['Claude requires a warning first', 'Emit a warning in cleanup.go', 'The skip is safe', 'Silent skip returns success', 'Skip emits a warning', 'runner timed out waiting for model output', 'Reviewer output is missing']:
+            self.assertIn(evidence, context)
+        self.assertIn('Apply and verify the proposed fixes', context)
+
+    def test_context_marks_missing_evidence_without_inventing_it(self):
+        self.refresh()
+        context = self.docs()[0]['decision_context_md']
+        self.assertIn('MPR did not provide a disagreement explanation', context)
+        self.assertIn('Existing contract:** Not separately specified', context)
+        self.assertIn('No fix plan was supplied', context)
+
     def test_closed_and_changed_heads_stand_down(self):
         for live, reason in [({}, "no longer open"), ({42: {"head": {"sha": "b" * 40}}}, "head changed")]:
             self.live = live

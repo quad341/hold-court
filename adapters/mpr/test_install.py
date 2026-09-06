@@ -44,4 +44,4 @@ class InstallTests(unittest.TestCase):
             self.assertEqual(config['target'], 'reviewer')
             self.assertEqual(calls[0][0], ['/tools/bd', 'config', 'get', 'issue_prefix', '--json'])
             self.assertEqual(calls[0][1]['cwd'], city.resolve())
-            self.assertIn('annotations guide the agent', (checkout/'holdcourt.toml').read_text())
+            self.assertIn('required response to the hold guides the agent', (checkout/'holdcourt.toml').read_text())

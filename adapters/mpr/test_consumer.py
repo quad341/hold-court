@@ -74,8 +74,8 @@ class ConsumerTests(unittest.TestCase):
         self.assertIn('analysis only',description)
         self.assertIn(self.request['head_sha'],description)
 
-    def test_empty_close_returns_clarification_and_preserves_intent(self):
-        self.request.update(action='close', note='')
+    def test_unclear_close_returns_clarification_and_preserves_intent(self):
+        self.request.update(action='close', note='Close if this is superseded; clarify which replacement first.')
         consumer.atomic(self.ruling, self.request)
         consumer.enqueue(self.config, self.request)
         consumer.sync_job(self.config, self.path(), self.fake_run)
@@ -90,6 +90,22 @@ class ConsumerTests(unittest.TestCase):
         self.assertEqual(self.result()['thread'][0]['body'], 'What is the reason to close?')
         self.assertEqual(consumer.read(self.ruling), self.request)
         self.assertEqual(consumer.read(self.path())['request']['action'], 'close')
+
+    def test_every_new_action_requires_response(self):
+        for action in ['proceed', 'changes', 'close', 'discuss']:
+            for note in ['', ' \n\t']:
+                with self.subTest(action=action, note=note), self.assertRaises(ValueError):
+                    consumer.enqueue(self.config, dict(self.request, action=action, note=note))
+        self.assertFalse(Path(self.config['spool']).exists())
+
+    def test_previously_queued_blank_request_can_still_be_observed(self):
+        legacy = dict(self.request, note='')
+        consumer.atomic(self.ruling, legacy)
+        consumer.atomic(self.path(), {'request':legacy, 'routed':True, 'bead_id':'town-hc-legacy'})
+        self.exists = True
+        self.bead.update(metadata={'holdcourt.outcome':'needs_clarification'})
+        consumer.sync_job(self.config, self.path(), self.fake_run)
+        self.assertEqual(self.result()['status'], 'needs_clarification')
 
     def test_command_exposes_configured_tools_to_child_commands(self):
         config = dict(self.config, bd='/custom/beads/bin/bd', gc='/custom/gc/bin/gc', gh='/usr/bin/gh')

@@ -64,6 +64,19 @@ Three panes, with the list and reading pane stacked so long titles have room:
 - README screenshots show the current dark theme with synthetic data and are
   regenerated with `make screenshots` alongside UI changes.
 
+### Decision evidence and human response
+
+A hold must explain the ambiguity: what reviewers disagree on and their reasons
+and fixes, what error occurred, or what contract changes from/to. Export source
+evidence from the held-head run and label missing information explicitly. Keep
+this separate from the proposed contributor-facing review so its polished text
+does not conceal an unresolved decision.
+
+Every new ruling requires a human response to the hold, even Proceed. A chosen
+category alone is not approval of an undefined result or message. Responses are
+agent guidance, with editorial discretion; verbatim delivery requires explicit
+instruction. An insufficient response returns to discussion for clarification.
+
 ### Keybindings (vim grammar, non-negotiable)
 
 | Key | Action |
@@ -115,6 +128,7 @@ maintainer-pr-review exporter is simply the first adapter.
   "url": "https://github.com/gastownhall/gascity/pull/5795",
   "class": "ambiguous-needs-discussion",      // folder key
   "title": "Push-tier relaxation",
+  "decision_context_md": "Reviewer positions, disagreement, errors, contract changes, proposed outcome",
   "question": "The one operative question, <= ~80 words.",
   "review_body_md": "... full prepared review, markdown ...",
   "verdict": "fix-merge",                     // pipeline's recorded verdict, if any

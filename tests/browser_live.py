@@ -28,6 +28,7 @@ with tempfile.TemporaryDirectory(prefix='hold-court-live-test-') as tmp:
     rulings.mkdir()
     title = 'A long actual pull request title explaining a subtle process-group cancellation race across foreground children'
     hold = dict(id='example-42-head', repo='example/widgets', pr=42, author='Contributor',
+                decision_context_md='## Decision requiring your response\nReviewers disagree on whether to fix shutdown reporting before merging.\n\n### Claude — fix-merge\nEmit a warning when cleanup skips a child, and test that warning.\n\n### Codex — auto-merge\nCleanup fails safely; reporting can follow in a separate change.\n\n### Contract change\nBefore: skipped cleanup reports success. After: report skipped work explicitly.',
                 title='example/widgets #42: ' + title, question='Should this behavior change?',
                 review_body_md='## Prepared review\n\nThe cancellation change preserves the process-group boundary during shutdown. The remaining decision is whether cleanup should wait for child processes to finish.\n\n' + ('### Verification\n\nExercise cancellation with a foreground child and confirm that cleanup leaves no orphan process.\n\n' * 20),
                 head_sha='a' * 40, held_at='2026-09-01T12:00:00Z',
@@ -61,6 +62,8 @@ with tempfile.TemporaryDirectory(prefix='hold-court-live-test-') as tmp:
             page.on('dialog', lambda dialog: (confirmations.append(dialog.message), dialog.accept()))
             page.goto(url)
             expect(page.locator('.hold-title')).to_have_text(title)
+            expect(page.locator('.decision-context')).to_contain_text('Emit a warning when cleanup skips a child')
+            expect(page.locator('.decision-context')).to_contain_text('Before: skipped cleanup reports success')
             expect(page.locator('.hold-meta')).to_contain_text('@Contributor')
             expect(page.locator('#reading-content .hold-author')).to_have_text('Author: @Contributor')
             page.locator('#note-input').fill('Keep this draft across search')
@@ -174,13 +177,20 @@ with tempfile.TemporaryDirectory(prefix='hold-court-live-test-') as tmp:
             if os.environ.get('HOLD_COURT_DOC_SCREENSHOTS'):
                 page.locator('#reading-content').evaluate('(el) => el.scrollTop = 0')
                 doc_screenshot('reading-pane.png')
-            # Blank annotations are valid agent input, including Close.
+            # A ruling is incomplete without a response to the hold, including Proceed.
             page.locator('#note-input').fill('')
+            original_ruling = (rulings/'example-42-head.json').read_text()
+            for action in ['proceed', 'changes', 'close', 'discuss']:
+                page.locator('[data-action="'+action+'"]').click()
+                page.locator('#save-btn').click()
+                expect(page.locator('#notice')).to_contain_text('Respond to each hold before saving')
+                assert (rulings/'example-42-head.json').read_text() == original_ruling
             page.locator('[data-action="close"]').click()
+            page.locator('#note-input').fill('Close if superseded; clarify the replacement first.')
             page.locator('#save-btn').click()
             expect(page.locator('#latest-status')).to_contain_text('queued')
             saved = json.loads((rulings/'example-42-head.json').read_text())
-            assert saved['action'] == 'close' and saved['note'] == ''
+            assert saved['action'] == 'close' and saved['note'] == 'Close if superseded; clarify the replacement first.'
             assert 'Annotations for the agent' in confirmations[-1]
             with page.expect_response(lambda response: '/api/holds' in response.url and response.status == 200
                                       and any((h.get('result') or {}).get('status') == 'needs_clarification'
