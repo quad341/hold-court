@@ -111,7 +111,7 @@ type holdJSON struct {
 	URL                 string           `json:"url"`
 	Verdict             string           `json:"verdict"`
 	HeldAt              string           `json:"held_at"`
-	State               string           `json:"state"` // inbox | ruled | executed | stood-down
+	State               string           `json:"state"` // inbox | pending | executed | stood-down
 	Unread              bool             `json:"unread"`
 	Updated             bool             `json:"updated"`
 	Revision            string           `json:"revision"`
@@ -332,6 +332,9 @@ func (s *server) buildHoldView(h *feed.Hold) (holdJSON, error) {
 		return holdJSON{}, err
 	}
 	updated := readRevision != "" && readRevision != activityRevision
+	if readRevision == "" && rl != nil && (incomingResult != "" || len(thread) > 0) {
+		updated = true
+	}
 	return holdJSON{
 		ID:                  h.ID,
 		Thread:              thread,
@@ -358,7 +361,7 @@ func (s *server) buildHoldView(h *feed.Hold) (holdJSON, error) {
 	}, nil
 }
 
-// holdState computes DESIGN.md's inbox/ruled/executed/stood-down state for
+// holdState computes DESIGN.md's inbox/pending/executed/stood-down state for
 // h. A ruling file that can't be read is treated as "not yet ruled" rather
 // than failing the whole page: one bad file on disk shouldn't take down the
 // dashboard for every other hold.
@@ -373,10 +376,10 @@ func holdState(rulingsDir string, h *feed.Hold) string {
 	if result, found, _ := ruling.ReadResult(rulingsDir, h.ID); found && result.Status == "executed" && (result.RulingID == "" || result.RulingID == rl.ID) {
 		return "executed"
 	}
-	return "ruled"
+	return "pending"
 }
 
-// buildFolders computes the folders pane: the four fixed state folders
+// buildFolders computes the folders pane: the fixed state and unread-activity folders
 // (always present, even at zero count), then, if any hold carries a class,
 // a divider followed by one folder per class DESIGN.md's example mockup
 // shows both kinds side by side, so v1 treats them as two independent
@@ -393,7 +396,8 @@ func buildFolders(views []holdJSON) []folderJSON {
 
 	folders := []folderJSON{
 		{ID: "inbox", Label: "Inbox", Count: stateCounts["inbox"]},
-		{ID: "ruled", Label: "Ruled", Count: stateCounts["ruled"]},
+		{ID: "pending", Label: "Pending", Count: stateCounts["pending"]},
+		{ID: "updates", Label: "Unread updates", Count: len(filterByFolder(views, "updates"))},
 		{ID: "executed", Label: "Executed", Count: stateCounts["executed"]},
 		{ID: "stood-down", Label: "Stood-down", Count: stateCounts["stood-down"]},
 	}
@@ -415,10 +419,19 @@ func buildFolders(views []holdJSON) []folderJSON {
 }
 
 func filterByFolder(views []holdJSON, folderID string) []holdJSON {
+	if folderID == "ruled" {
+		folderID = "pending"
+	} // Legacy folder links.
 	className, isClass := strings.CutPrefix(folderID, "class:")
 
 	var out []holdJSON
 	for _, v := range views {
+		if folderID == "updates" {
+			if v.Ruling != nil && v.Updated {
+				out = append(out, v)
+			}
+			continue
+		}
 		if isClass {
 			if v.Class == className {
 				out = append(out, v)
@@ -550,6 +563,11 @@ func (s *server) handleSaveRulings(w http.ResponseWriter, r *http.Request) {
 			res.OK = true
 		}
 		if res.OK {
+			// Submission acknowledges the evidence used for this decision, not
+			// any reply that might arrive while the hook runs.
+			if err := s.cfg.Store.MarkReadRevision(s.cfg.User, item.HoldID, view.ActivityRevision, time.Now()); err != nil {
+				res.Error = "Decision saved, but read acknowledgement failed: " + err.Error()
+			}
 			updated, err := s.holdViews()
 			if err == nil {
 				for _, h := range updated {

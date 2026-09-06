@@ -111,15 +111,29 @@ Use `PYTHON=/path/to/python` to select that environment.
 Folders stay on the left. The hold list sits **above** the reading pane and uses
 the remaining width; titles wrap, with repository and PR number on a separate
 line alongside the PR author. Missing authors are shown as unknown. The browser checks the feed and ruling results every five seconds.
-The header shows connection status and an **Updates** button for new activity.
+The header shows connection status and an **Unread updates** button for incoming activity on submitted holds.
 An adapter may refresh its source less frequently; the browser reflects the
 latest files the adapter has written.
+
+**Inbox** contains holds awaiting their first saved decision, including holds
+that have never been read. Saving any ruling, including Discuss, moves its row
+to **Pending** immediately. Pending includes queued work, discussions, requests
+for clarification, and failures; completed actions move to **Executed**.
+Unsaved choices remain in Inbox.
+
+**Unread updates** collects submitted holds with activity you have not read:
+review changes, agent acknowledgements, replies, and completion. It is also a
+folder on the left, and its count survives page reloads. New untouched holds
+stay in Inbox; your own submissions do not count as incoming updates. Opening
+an update removes it from this view while keeping the document open below.
+A later reply brings it back, even after execution.
 
 Arrivals preserve your selected hold, scroll position, and note. When the hold
 you are reading changes, choose **Show update** when you want to load that
 revision. Other changed holds get an Updated label; previously read holds
 become unread when their review or result changes. Reading the new revision
-acknowledges it. Pending decisions and notes are backed up in this browser's
+acknowledges it. When a row moves out of the active folder after saving or
+reading, its document stays open until you navigate away. Unsaved choices and notes are backed up in this browser's
 local storage for this server URL. Save failures remain visible and keep drafts.
 
 The visible search bar shows the active folder, query, match count, and fields

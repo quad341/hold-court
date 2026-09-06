@@ -46,8 +46,8 @@ func TestLiveSnapshotRevalidatesAndShowsResultDetails(t *testing.T) {
 		t.Fatal(err)
 	}
 	after, newETag := liveSnapshot(t, h)
-	if after[0].State != "ruled" || after[0].Result.Summary != "The PR head changed; no action taken." {
-		t.Fatalf("failure must remain ruled and expose its explanation: %+v", after[0])
+	if after[0].State != "pending" || after[0].Result.Summary != "The PR head changed; no action taken." {
+		t.Fatalf("failure must remain pending and expose its explanation: %+v", after[0])
 	}
 	if newETag == etag || after[0].Revision == before[0].Revision || after[0].Ruling == nil {
 		t.Fatal("new decision/result did not invalidate snapshot")
@@ -198,5 +198,51 @@ func TestFollowupQueueDoesNotCreateIncomingActivity(t *testing.T) {
 	acknowledged, _ := liveSnapshot(t, h)
 	if !acknowledged[0].Updated {
 		t.Fatal("agent acknowledgement did not create incoming activity")
+	}
+}
+
+func TestPendingAndUnreadUpdatesLifecycle(t *testing.T) {
+	h, dir := newHoldFixtureHandler(t, false)
+	before, _ := liveSnapshot(t, h)
+	if len(filterByFolder(before, "inbox")) != 1 || len(filterByFolder(before, "updates")) != 0 {
+		t.Fatal("untouched hold must stay in Inbox")
+	}
+	body, _ := json.Marshal([]rulingRequest{{HoldID: fixtureHoldID, Action: "discuss", Note: "Explain the competing fixes", Revision: before[0].Revision}})
+	req := httptest.NewRequest(http.MethodPost, "/api/rulings", strings.NewReader(string(body)))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	pending, _ := liveSnapshot(t, h)
+	if len(filterByFolder(pending, "inbox")) != 0 || len(filterByFolder(pending, "pending")) != 1 || len(filterByFolder(pending, "updates")) != 0 {
+		t.Fatalf("submission routing failed: %+v", pending)
+	}
+	if pending[0].Unread {
+		t.Fatal("submission should acknowledge only the evidence it used")
+	}
+	writeResultFixture(t, dir)
+	completed, _ := liveSnapshot(t, h)
+	if len(filterByFolder(completed, "pending")) != 0 || len(filterByFolder(completed, "executed")) != 1 || len(filterByFolder(completed, "updates")) != 1 {
+		t.Fatalf("completion not in unread updates: %+v", completed)
+	}
+	req = httptest.NewRequest(http.MethodPost, "/api/holds/"+fixtureHoldID+"/read", strings.NewReader(`{"revision":"`+completed[0].ActivityRevision+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(httptest.NewRecorder(), req)
+	read, _ := liveSnapshot(t, h)
+	if len(filterByFolder(read, "updates")) != 0 || len(filterByFolder(read, "executed")) != 1 {
+		t.Fatal("read completion must remain Executed but leave Unread updates")
+	}
+}
+
+func TestUnreadUpdatesExcludeUnruledAndIncludeLegacyReplies(t *testing.T) {
+	h, dir := newHoldFixtureHandler(t, false)
+	writeResultFixture(t, dir)
+	untouched, _ := liveSnapshot(t, h)
+	if len(filterByFolder(untouched, "updates")) != 0 {
+		t.Fatal("unruled hold entered Unread updates")
+	}
+	writeRulingFixture(t, dir)
+	legacy, _ := liveSnapshot(t, h)
+	if len(filterByFolder(legacy, "updates")) != 1 {
+		t.Fatal("unread legacy reply was lost without a read baseline")
 	}
 }

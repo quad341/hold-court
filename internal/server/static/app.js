@@ -20,7 +20,6 @@
 		matchCursor: -1,
 		pendingG: false,
 		updates: {},
-		retained: null,
 		saving: false,
 		etag: "",
 	};
@@ -56,17 +55,19 @@
 	} catch (_) { notice("Could not restore saved drafts."); }
 	holds.forEach(function (h) { if (h.updated) state.updates[h.id] = true; });
 
-	function folderHolds() {
-		var list = holds.filter(function (h) {
-			if (h.id === state.retained) return true;
-			if (state.folder === "updates") return !!state.updates[h.id];
-			if (state.folder.indexOf("class:") === 0) {
-				return h.class === state.folder.slice(6);
-			}
-			return h.state === state.folder;
-		});
-		return list;
+	function isUnreadUpdate(h) { return !!h.ruling && h.updated; }
+
+	function matchesFolder(h, id) {
+		if (id === 'updates') return isUnreadUpdate(h);
+		if (id.indexOf('class:') === 0) return h.class === id.slice(6);
+		return h.state === id;
 	}
+
+	function folderHolds() {
+		return holds.filter(function (h) { return matchesFolder(h, state.folder); });
+	}
+
+	function readingHold() { return byID[readingEl.dataset.holdId] || null; }
 
 	function visibleHolds() {
 		var list = folderHolds();
@@ -102,6 +103,7 @@
 	function renderFolders() {
 		var html = "";
 		folders.forEach(function (f) {
+			if (!f.heading) f.count = holds.filter(function (h) { return matchesFolder(h, f.id); }).length;
 			if (f.heading) {
 				html += '<li class="folder-heading">' + escapeHTML(f.label) + "</li>";
 				return;
@@ -116,17 +118,13 @@
 	}
 
 	function renderList() {
+		updateActivity();
 		var list = visibleHolds();
 		if (state.cursor >= list.length) state.cursor = Math.max(0, list.length - 1);
 
 		state.matches = state.filterQuery.trim() ? list.map(function (_, i) { return i; }) : [];
 		var folder = folders.find(function (f) { return f.id === state.folder; });
-		var scope = folder ? folder.label : state.folder === 'updates' ? 'Updates' : state.folder;
-		var retained = byID[state.retained];
-		if (retained && (state.folder === 'updates' ? !state.updates[retained.id] :
-			state.folder.indexOf('class:') === 0 ? retained.class !== state.folder.slice(6) : retained.state !== state.folder)) {
-			scope += ' + retained selection';
-		}
+		var scope = folder ? folder.label : state.folder === 'updates' ? 'Unread updates' : state.folder;
 		var fields = state.searchField === 'author' ? 'author' : 'title, question, repo, PR number, class, author';
 		searchSummary.textContent = scope + ' · ' + list.length + ' of ' + folderHolds().length + ' holds · ' +
 			(state.filterQuery.trim() ? 'Filter: “' + state.filterQuery.trim() + '” · ' : '') + fields +
@@ -172,9 +170,10 @@
 			.join(" ");
 	}
 
-	function renderReading() {
-		var hold = currentHold();
+	function renderReading(hold) {
+		hold = hold || currentHold();
 		if (!hold) {
+			readingEl.dataset.holdId = "";
 			readingEl.innerHTML = "<p>No holds in this folder.</p>";
 			return;
 		}
@@ -269,7 +268,6 @@
 
 	function setFolder(id) {
 		saveNoteDraft();
-		state.retained = null;
 		state.folder = id;
 		state.cursor = 0;
 		state.matches = [];
@@ -293,12 +291,13 @@
 			body: JSON.stringify({ unread: unread, revision: revision }),
 		}).then(function (resp) {
 			if (!resp.ok) throw new Error("Read state could not be saved");
-			hold.unread = unread;
-			if (!unread && hold.activity_revision === revision) {
-				delete state.updates[holdID];
-				hold.updated = false;
+			var current = byID[holdID];
+			if (current && (unread || current.activity_revision === revision)) {
+				current.unread = unread;
+				if (!unread) current.updated = false;
 			}
-			updateActivity(); renderList();
+			if (state.folder === 'updates' && current && !isUnreadUpdate(current) && readingEl.dataset.holdId === holdID) state.cursor = -1;
+			updateActivity(); renderFolders(); renderList();
 		}).catch(function (err) { notice(err.message); });
 	}
 
@@ -310,7 +309,7 @@
 	}
 
 	function setPendingAction(action) {
-		var hold = currentHold();
+		var hold = readingHold();
 		if (!hold) return;
 		if (hold.state === "stood-down") { notice("This hold is resolved. Open a current hold before recording a decision."); return; }
 		if (hold.revision !== displayedRevision) { notice("This hold changed. Show its update before choosing a decision."); return; }
@@ -320,16 +319,16 @@
 		else state.pending[hold.id] = { action: action, note: note, revision: hold.revision };
 		persistDrafts();
 		renderList();
-		renderReading();
+		renderReading(hold);
 		renderPendingBar();
 	}
 
 	function clearPending() {
 		saveNoteDraft();
-		var hold = currentHold();
+		var hold = readingHold();
 		if (!hold) return;
 		delete state.pending[hold.id];
-		persistDrafts(); renderList(); renderReading(); renderPendingBar();
+		persistDrafts(); renderList(); renderReading(hold); renderPendingBar();
 		notice('Choice cleared. Your note is kept; nothing will be sent for this hold.');
 	}
 
@@ -376,11 +375,11 @@
 			var errors = [];
 			results.forEach(function (r) {
 				if (!r.ok) { errors.push(r.error); return; }
+				if (r.error) errors.push(r.error);
 				if (r.hold) {
 					byID[r.hold_id] = r.hold;
 					holds = holds.map(function (h) { return h.id === r.hold_id ? r.hold : h; });
 					if (readingEl.dataset.holdId === r.hold_id) {
-						state.retained = r.hold_id;
 						displayedRevision = r.hold.revision;
 						var status = document.getElementById('latest-status');
 						if (status) status.innerHTML = latestStatus(r.hold);
@@ -397,7 +396,9 @@
 				}
 			});
 			persistDrafts(); renderPendingBar();
-			notice(errors.length ? errors.join("; ") : "Decisions saved. See History & discussion for the record and any replies.");
+			state.cursor = visibleHolds().findIndex(function (h) { return h.id === readingEl.dataset.holdId; });
+			updateActivity(); renderFolders(); renderList();
+			notice(errors.length ? errors.join("; ") : "Decisions saved to Pending. Incoming replies will appear in Unread updates.");
 		}).catch(function (err) { notice(err.message); }).finally(function () {
 			state.saving = false;
 			pollHolds();
@@ -405,7 +406,9 @@
 	}
 
 	function updateActivity() {
-		activityEl.textContent = 'Updates (' + Object.keys(state.updates).length + ')';
+		state.updates = {};
+		holds.forEach(function (h) { if (isUnreadUpdate(h)) state.updates[h.id] = true; });
+		activityEl.textContent = 'Unread updates (' + Object.keys(state.updates).length + ')';
 	}
 
 	var polling = false;
@@ -421,36 +424,30 @@
 			}).then(function (data) {
 				liveEl.textContent = 'Live · checked ' + new Date().toLocaleTimeString();
 				if (!data) return;
-				var selected = currentHold();
+				var selected = readingHold();
 				var selectedID = selected && selected.id;
-				data.holds.forEach(function (h) {
-					var old = byID[h.id];
-					if (h.updated || (old && old.activity_revision !== h.activity_revision) || (!old && h.state === 'inbox')) state.updates[h.id] = true;
-				});
 				holds = data.holds;
 				byID = {};
 				holds.forEach(function (h) { byID[h.id] = h; });
-				// Retain the current item even if its folder changes. Reading context
-				// and the textarea DOM stay untouched until the user opens an update.
+				// Keep the reading document stable without retaining its row in a
+				// folder it no longer belongs to.
 				if (selected && !byID[selectedID]) {
 					selected = Object.assign({}, selected, {state:'stood-down', resolved_reason:'Removed from the current feed', revision:selected.revision.replace(/-removed$/, '') + '-removed', activity_revision:selected.activity_revision.replace(/-removed$/, '') + '-removed'});
 					state.updates[selectedID] = true;
 					 holds.push(selected); byID[selectedID] = selected;
 				}
-				state.retained = selectedID;
 				folders = data.folders;
 				var index = visibleHolds().findIndex(function (h) { return h.id === selectedID; });
-				state.cursor = Math.max(0, index);
-				renderFolders(); renderList(); updateActivity();
+				state.cursor = index;
+				updateActivity(); renderFolders(); renderList();
 				var button = document.getElementById('show-update');
 				if (button && byID[selectedID]) button.hidden = byID[selectedID].activity_revision === displayedActivityRevision;
-				if (!selectedID && currentHold()) renderReading();
+				if (!selectedID && visibleHolds().length) { state.cursor = 0; renderReading(); renderList(); }
 			}).catch(function (err) { liveEl.textContent = err.message; }).finally(function () { polling = false; });
 	}
 
 	function applyFilter(query) {
 		saveNoteDraft();
-		state.retained = null;
 		state.filterQuery = query;
 		state.cursor = 0;
 		var list = visibleHolds();
@@ -509,9 +506,9 @@
 	});
 	readingEl.addEventListener("click", function (ev) {
 		var tabButton = ev.target.closest('[data-tab]');
-		if (tabButton) { saveNoteDraft(); readingTab = tabButton.dataset.tab; renderReading(); return; }
+		if (tabButton) { saveNoteDraft(); readingTab = tabButton.dataset.tab; renderReading(readingHold()); return; }
 		if (ev.target.id === 'clear-ruling') { clearPending(); return; }
-		if (ev.target.id === "show-update") { saveNoteDraft(); openSelected(); return; }
+		if (ev.target.id === "show-update") { saveNoteDraft(); var displayed = readingHold(); renderReading(displayed); if (displayed) markRead(displayed.id, false); return; }
 		var btn = ev.target.closest("button[data-action]");
 		if (btn) {
 			setPendingAction(btn.getAttribute("data-action"));
@@ -624,16 +621,16 @@
 				setPendingAction("discuss");
 				break;
 			case "i":
-				openSelected();
+				if (!readingHold()) openSelected();
 				focusNoteInput();
 				ev.preventDefault();
 				break;
 			case "u":
-				var hold = currentHold();
+				var hold = readingHold();
 				if (hold) markRead(hold.id, !hold.unread);
 				break;
 			case "o":
-				var h2 = currentHold();
+				var h2 = readingHold();
 				if (h2) window.open(h2.url, "_blank", "noopener");
 				break;
 			case "s":
@@ -659,6 +656,6 @@
 			ev.preventDefault(); ev.returnValue = '';
 		}
 	});
-	renderAll(); updateActivity(); pollHolds();
+	updateActivity(); renderAll(); pollHolds();
 	setInterval(pollHolds, 5000);
 })();

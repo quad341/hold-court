@@ -117,7 +117,7 @@ with tempfile.TemporaryDirectory(prefix='hold-court-live-test-') as tmp:
             expect(page.locator('#note-input')).to_have_value('Keep my reasoning while other work arrives.')
             expect(page.locator('#note-input')).to_be_focused()
             assert page.locator('#reading-content').evaluate('(el) => el.scrollTop') == original_scroll
-            expect(page.locator('#activity-button')).to_have_text('Updates (1)')
+            expect(page.locator('#activity-button')).to_have_text('Unread updates (0)')
             if os.environ.get('HOLD_COURT_DOC_SCREENSHOTS'):
                 page.locator('#reading-content').evaluate('(el) => el.scrollTop = 0')
                 page.locator('#note-input').press('Escape')
@@ -161,7 +161,30 @@ with tempfile.TemporaryDirectory(prefix='hold-court-live-test-') as tmp:
             assert len(list((tmp/'requests').glob('*.json'))) == 1
             expect(page.locator('#note-input')).to_have_value('')
             assert json.loads((rulings / 'example-42-head.json').read_text())['action'] == 'discuss'
+            expect(page.locator('#pane-list li')).to_have_count(1)
+            expect(page.locator('#pane-list [data-hold-id="example-42-head"]')).to_have_count(0)
+            expect(page.locator('#pane-folders [data-folder-id="pending"]')).to_contain_text('1')
             write_json(rulings / 'example-42-head.result.json', {'status': 'failed', 'summary': 'Head changed. No action taken.'})
+            expect(page.locator('#show-update')).to_be_visible(timeout=15000)
+            page.locator('#show-update').click()
+            expect(page.locator('#activity-button')).to_have_text('Unread updates (0)')
+            # Reading the displayed update acknowledged it; later activity must return.
+            write_json(rulings/'example-42-head.result.json', {'status':'in_progress', 'summary':'Agent acknowledged the request'})
+            expect(page.locator('#activity-button')).to_have_text('Unread updates (1)', timeout=15000)
+            page.reload()
+            expect(page.locator('#activity-button')).to_have_text('Unread updates (1)')
+            page.locator('#activity-button').click()
+            expect(page.locator('#pane-list li')).to_have_count(1)
+            page.locator('#pane-list [data-hold-id="example-42-head"]').click()
+            expect(page.locator('#pane-list li')).to_have_count(0)
+            expect(page.locator('#activity-button')).to_have_text('Unread updates (0)')
+            expect(page.locator('#pane-reading h1')).to_have_text(title)
+            page.locator('#note-input').fill('Keep the reply bound to this hold')
+            page.locator('#pane-folders [data-folder-id="pending"]').click()
+            expect(page.locator('#pane-list li')).to_have_count(1)
+            expect(page.locator('#note-input')).to_have_value('Keep the reply bound to this hold')
+            page.locator('#note-input').fill('')
+            write_json(rulings/'example-42-head.result.json', {'status':'failed', 'summary':'Head changed. No action taken.'})
             expect(page.locator('#show-update')).to_be_visible(timeout=15000)
             page.locator('#show-update').click()
             expect(page.locator('#latest-status')).to_contain_text('Head changed. No action taken.')
@@ -200,13 +223,24 @@ with tempfile.TemporaryDirectory(prefix='hold-court-live-test-') as tmp:
             page.locator('#show-update').click()
             expect(page.locator('#latest-status')).to_contain_text('needs clarification')
             expect(page.locator('#reading-tab')).to_contain_text('close')
+            page.locator('#pane-folders [data-folder-id="inbox"]').click()
             for index in range(8):
                 write_json(feed / f'more-{index}.json', dict(hold, id=f'more-{index}', pr=100+index,
                            title=f'Additional hold {index}', held_at='2026-09-03T12:00:00Z'))
-            expect(page.locator('#pane-list li')).to_have_count(10, timeout=15000)
+            expect(page.locator('#pane-list li')).to_have_count(9, timeout=15000)
             page.locator('#pane-list').evaluate('(el) => el.scrollTop = 0')
             page.keyboard.press('G')
             assert page.locator('#pane-list').evaluate('(el) => el.scrollTop') > 0
+            write_json(rulings/'example-42-head.result.json', {'ruling_id':saved['id'], 'status':'executed', 'summary':'Action completed'})
+            expect(page.locator('#pane-folders [data-folder-id="pending"]')).to_contain_text('0', timeout=15000)
+            expect(page.locator('#pane-folders [data-folder-id="executed"]')).to_contain_text('1')
+            expect(page.locator('#activity-button')).to_have_text('Unread updates (1)')
+            page.locator('#activity-button').click()
+            page.locator('#pane-list [data-hold-id="example-42-head"]').click()
+            expect(page.locator('#pane-list li')).to_have_count(0)
+            expect(page.locator('#latest-status')).to_contain_text('Action completed')
+            page.reload()
+            expect(page.locator('#activity-button')).to_have_text('Unread updates (0)')
             assert not errors, errors
             if os.environ.get('HOLD_COURT_SCREENSHOT'):
                 page.screenshot(path=os.environ['HOLD_COURT_SCREENSHOT'])
