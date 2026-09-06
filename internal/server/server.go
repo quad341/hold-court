@@ -95,9 +95,8 @@ func New(cfg Config) (http.Handler, error) {
 	return gzipHandler(mux), nil
 }
 
-// holdJSON is both the per-hold view model for the index template and the
-// wire shape embedded in the page's #holds-data JSON island, so the server-
-// rendered fallback and the client app agree on one set of fields.
+// holdJSON is the per-hold wire shape of GET /api/holds, the document the
+// client app renders from (and caches locally between visits).
 type holdJSON struct {
 	DecisionContextHTML template.HTML    `json:"decision_context_html"`
 	Author              string           `json:"author"`
@@ -132,13 +131,14 @@ type folderJSON struct {
 	Heading bool   `json:"heading,omitempty"`
 }
 
+// pageData is the index shell: everything the page needs before, or
+// without, the holds document — the folder nav with counts, whether any
+// holds exist at all (for the empty state), keys, and the execution mode.
+// Hold contents are never inlined; the client fetches GET /api/holds.
 type pageData struct {
 	Folders             []folderJSON
 	SelectedFolder      string
-	ListHolds           []holdJSON
-	SelectedHold        *holdJSON
-	HoldsJSON           template.JS
-	FoldersJSON         template.JS
+	HoldCount           int
 	Keybindings         []KeyBinding
 	RecordOnly          bool
 	ConsumerDescription string
@@ -236,45 +236,15 @@ func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	folders := buildFolders(views)
-
 	selectedFolder := r.URL.Query().Get("folder")
 	if selectedFolder == "" {
 		selectedFolder = "inbox"
 	}
-	listHolds := filterByFolder(views, selectedFolder)
-
-	var selected *holdJSON
-	if wantID := r.URL.Query().Get("hold"); wantID != "" {
-		for i := range listHolds {
-			if listHolds[i].ID == wantID {
-				selected = &listHolds[i]
-				break
-			}
-		}
-	}
-	if selected == nil && len(listHolds) > 0 {
-		selected = &listHolds[0]
-	}
-
-	holdsJSON, err := json.Marshal(views)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	foldersJSON, err := json.Marshal(folders)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
 
 	data := pageData{
-		Folders:             folders,
+		Folders:             buildFolders(views),
 		SelectedFolder:      selectedFolder,
-		ListHolds:           listHolds,
-		SelectedHold:        selected,
-		HoldsJSON:           template.JS(holdsJSON),   //nolint:gosec // encoding/json escapes <,>,& by default; safe to embed in a script tag
-		FoldersJSON:         template.JS(foldersJSON), //nolint:gosec // encoding/json escapes <,>,& by default; safe to embed in a script tag
+		HoldCount:           len(views),
 		Keybindings:         Keybindings,
 		RecordOnly:          len(s.cfg.OnRuling) == 0,
 		ConsumerDescription: s.cfg.ConsumerDescription,

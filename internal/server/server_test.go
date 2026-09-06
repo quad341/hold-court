@@ -88,7 +88,7 @@ func newTestHandler(t *testing.T) http.Handler {
 	return h
 }
 
-func TestServeHTTP_RootRendersThreePanes(t *testing.T) {
+func TestServeHTTP_RootRendersShellWithoutHoldContents(t *testing.T) {
 	h := newTestHandler(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -101,30 +101,50 @@ func TestServeHTTP_RootRendersThreePanes(t *testing.T) {
 	}
 
 	body := w.Body.String()
-	for _, marker := range []string{`id="pane-folders"`, `id="pane-list"`, `id="pane-reading"`} {
+	for _, marker := range []string{`id="pane-folders"`, `id="pane-list"`, `id="pane-reading"`, `id="data-status"`, `id="rebuild-cache"`, `id="cache-notice"`} {
 		if !strings.Contains(body, marker) {
-			t.Errorf("response body missing pane marker %s", marker)
+			t.Errorf("response body missing marker %s", marker)
 		}
 	}
-
-	if !strings.Contains(body, "Push-tier relaxation") {
-		t.Error("response body missing hold title")
+	// The nav and the loading state are server-rendered so the page reads
+	// sensibly before the document arrives.
+	if !strings.Contains(body, `data-folder-id="inbox"`) || !strings.Contains(body, `<span class="hold-count">1</span>`) {
+		t.Error("shell missing server-rendered folder nav with counts")
 	}
-	if !strings.Contains(body, "Should the push tier guard relax for release branches?") {
-		t.Error("response body missing hold question")
+	if !strings.Contains(body, "Loading holds…") {
+		t.Error("shell missing loading placeholder")
+	}
+	// Hold contents are served by /api/holds only, so the page stays small.
+	for _, leak := range []string{`id="holds-data"`, "Should the push tier guard relax for release branches?", "The guard currently blocks all force pushes."} {
+		if strings.Contains(body, leak) {
+			t.Errorf("shell inlines hold data: found %q", leak)
+		}
 	}
 }
 
-func TestServeHTTP_UnreadHoldListedBold(t *testing.T) {
+func TestServeHTTP_RootEmptyFeedShowsEmptyState(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	h, err := New(Config{FeedDir: t.TempDir(), RulingsDir: t.TempDir(), Store: st})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	body := getIndexBody(t, h)
+	if !strings.Contains(body, "No holds in this folder.") || strings.Contains(body, `class="placeholder"`) {
+		t.Errorf("empty feed should render the empty state, not a loading placeholder; body=%s", body)
+	}
+}
+
+func TestHandleHolds_ServesContentsAndUnread(t *testing.T) {
 	h := newTestHandler(t)
-
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	body := w.Body.String()
-	if !strings.Contains(body, `class="unread"`) {
-		t.Error("expected never-read hold to be marked unread in the list")
+	body := getHoldsBody(t, h)
+	for _, want := range []string{`"title":"Push-tier relaxation"`, `"question":"Should the push tier guard relax for release branches?"`, `"unread":true`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("holds document missing %s; body=%s", want, body)
+		}
 	}
 }
 
@@ -209,11 +229,23 @@ func getIndexBody(t *testing.T, h http.Handler) string {
 	return w.Body.String()
 }
 
+// getHoldsBody returns the GET /api/holds document the client renders from.
+func getHoldsBody(t *testing.T, h http.Handler) string {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/holds", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /api/holds status = %d: %s", w.Code, w.Body.String())
+	}
+	return w.Body.String()
+}
+
 func TestServeHTTP_HoldStateRuled(t *testing.T) {
 	h, rulingsDir := newHoldFixtureHandler(t, false)
 	writeRulingFixture(t, rulingsDir)
 
-	body := getIndexBody(t, h)
+	body := getHoldsBody(t, h)
 	if !strings.Contains(body, `"state":"pending"`) {
 		t.Errorf("expected ruled hold to render state \"ruled\"; body=%s", body)
 	}
@@ -224,7 +256,7 @@ func TestServeHTTP_HoldStateExecuted(t *testing.T) {
 	writeRulingFixture(t, rulingsDir)
 	writeResultFixture(t, rulingsDir)
 
-	body := getIndexBody(t, h)
+	body := getHoldsBody(t, h)
 	if !strings.Contains(body, `"state":"executed"`) {
 		t.Errorf("expected ruled+executed hold to render state \"executed\"; body=%s", body)
 	}
@@ -233,7 +265,7 @@ func TestServeHTTP_HoldStateExecuted(t *testing.T) {
 func TestServeHTTP_HoldStateStoodDown(t *testing.T) {
 	h, _ := newHoldFixtureHandler(t, true)
 
-	body := getIndexBody(t, h)
+	body := getHoldsBody(t, h)
 	if !strings.Contains(body, `"state":"stood-down"`) {
 		t.Errorf("expected unruled+resolved hold to render state \"stood-down\"; body=%s", body)
 	}

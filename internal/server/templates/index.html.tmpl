@@ -12,6 +12,8 @@
 	<span class="brand">Hold Court</span>
 	<span class="tagline">Reads like email. Rules like a bench.</span>
 	<span id="live-status" role="status">Connecting to live updates…</span>
+	<span id="data-status" role="status" title="Feed data version and when this browser last fetched it">Loading holds…</span>
+	<button id="rebuild-cache" type="button" title="Drop this browser's cached holds and re-read the feed directory on the server">Rebuild cache</button>
 	<button id="activity-button" type="button">Unread updates (0)</button>
 </header>
 <form id="search-bar" role="search">
@@ -23,6 +25,7 @@
  <span id="search-summary" role="status" aria-live="polite"></span>
 </form>
 <div id="notice" role="status" hidden></div>
+<div id="cache-notice" role="status" hidden><span id="cache-notice-text"></span> <button id="cache-notice-dismiss" type="button">Dismiss</button></div>
 <div id="app">
 	<nav id="pane-folders">
 		<ul>
@@ -35,34 +38,11 @@
 	</nav>
 	<div id="folder-divider" role="separator" aria-label="Resize folders" aria-orientation="vertical" tabindex="0"></div>
 	<section id="pane-list">
-		<ul>
-		{{range .ListHolds}}
-			<li{{if .Unread}} class="unread"{{end}} data-hold-id="{{.ID}}">{{.Title}} {{if .Author}}<span class="hold-author">@{{.Author}}</span>{{end}} <span class="hold-count">{{slice .HeldAt 0 10}}</span></li>
-		{{end}}
-		</ul>
+		{{if .HoldCount}}<p class="placeholder">Loading holds…</p>{{else}}<ul></ul>{{end}}
 	</section>
 	<div id="reading-divider" role="separator" aria-label="Resize hold list" aria-orientation="horizontal" tabindex="0"></div>
 	<section id="pane-reading">
-		{{with .SelectedHold}}
-		<div id="reading-content">
-		<h1>{{.Title}}</h1>
-		<p class="hold-author">Author: {{if .Author}}@{{.Author}}{{else}}unknown{{end}}</p>
-		<p class="question">{{.Question}}</p>
-		<p><a href="{{.URL}}" target="_blank" rel="noopener">{{.Repo}} #{{.PR}}</a> &middot; {{.State}}</p>
-		<div class="decision-context">{{if .DecisionContextHTML}}{{.DecisionContextHTML}}{{else}}No detailed ambiguity evidence was supplied. Ask the agent to explain the hold before resolving it.{{end}}</div>
-		<div class="review-body">{{.ReviewHTML}}</div>
-		</div>
-		<div id="ruling-bar">
-			<button type="button" data-action="proceed">p: Proceed with guidance</button>
-			<button type="button" data-action="changes">c: Request author changes</button>
-			<button type="button" data-action="close">x: Close PR</button>
-			<button type="button" data-action="discuss">d: discuss</button>
-			<div><textarea id="note-input" rows="2" placeholder="Your response to this hold: direction, reason, conditions (required; i)"></textarea></div>
-			<button type="button" id="save-btn">s: save pending rulings</button>
-		</div>
-		{{else}}
-		<p>No holds in this folder.</p>
-		{{end}}
+		{{if .HoldCount}}<p class="placeholder">Loading holds…</p>{{else}}<p>No holds in this folder.</p>{{end}}
 	</section>
 </div>
 <div id="pending-bar" hidden></div>
@@ -76,8 +56,6 @@
 		</table>
 	</div>
 </div>
-<script id="holds-data" type="application/json">{{.HoldsJSON}}</script>
-<script id="folders-data" type="application/json">{{.FoldersJSON}}</script>
 <script id="mode-data" type="application/json">{"record_only":{{.RecordOnly}}}</script>
 <div id="consumer-description" hidden>{{.ConsumerDescription}}</div>
 <script src="/static/app.js"></script>

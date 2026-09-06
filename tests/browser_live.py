@@ -66,6 +66,29 @@ with tempfile.TemporaryDirectory(prefix='hold-court-live-test-') as tmp:
             expect(page.locator('.decision-context')).to_contain_text('Before: skipped cleanup reports success')
             expect(page.locator('.hold-meta')).to_contain_text('@Contributor')
             expect(page.locator('#reading-content .hold-author')).to_have_text('Author: @Contributor')
+            # The page is a shell: holds arrive from /api/holds and are kept in
+            # IndexedDB, so a reload renders from that copy even while the
+            # server is unreachable, then revalidates by ETag.
+            expect(page.locator('#data-status')).to_contain_text('fetched')
+            version_before = page.locator('#data-status').inner_text().split()[1]
+            assert len(version_before) == 16, version_before
+            assert 'holds-data' not in page.content()
+            page.route('**/api/holds', lambda route: route.abort())
+            page.reload()
+            expect(page.locator('.hold-title')).to_have_text(title)
+            expect(page.locator('#data-status')).to_contain_text('cached, checking')
+            expect(page.locator('#cache-notice')).to_be_hidden()
+            page.unroute('**/api/holds')
+            expect(page.locator('#data-status')).to_contain_text('verified', timeout=15000)
+            expect(page.locator('#data-status')).to_contain_text(version_before)
+            # Rebuild cache: drops the local copy, rescans on the server, and
+            # always reports what happened, even when nothing changed.
+            page.locator('#rebuild-cache').click()
+            expect(page.locator('#cache-notice')).to_contain_text('Data cache rebuilt: version ' + version_before + ' (unchanged)')
+            expect(page.locator('#cache-notice')).to_contain_text('manual rebuild')
+            expect(page.locator('.hold-title')).to_have_text(title)
+            page.locator('#cache-notice-dismiss').click()
+            expect(page.locator('#cache-notice')).to_be_hidden()
             page.locator('#note-input').fill('Keep this draft across search')
             page.keyboard.press('Escape')
             page.keyboard.press('/')
@@ -129,6 +152,11 @@ with tempfile.TemporaryDirectory(prefix='hold-court-live-test-') as tmp:
             expect(page.locator('#note-input')).to_be_focused()
             assert page.locator('#reading-content').evaluate('(el) => el.scrollTop') == original_scroll
             expect(page.locator('#activity-button')).to_have_text('Unread updates (0)')
+            # A feed change is a data invalidation the operator can see.
+            expect(page.locator('#cache-notice')).to_contain_text('Data cache rebuilt: version ' + version_before + ' -> ', timeout=15000)
+            expect(page.locator('#cache-notice')).to_contain_text('feed changed')
+            assert version_before not in page.locator('#data-status').inner_text()
+            page.locator('#cache-notice-dismiss').click()
             if os.environ.get('HOLD_COURT_DOC_SCREENSHOTS'):
                 page.locator('#reading-content').evaluate('(el) => el.scrollTop = 0')
                 page.locator('#note-input').press('Escape')
@@ -256,7 +284,7 @@ with tempfile.TemporaryDirectory(prefix='hold-court-live-test-') as tmp:
             if os.environ.get('HOLD_COURT_SCREENSHOT'):
                 page.screenshot(path=os.environ['HOLD_COURT_SCREENSHOT'])
             browser.close()
-        print('PASS: resize/docking, clearing choices, preserved context, confirmed queue handoff, no self-notification, version history and replies')
+        print('PASS: cached shell and rebuild, resize/docking, clearing choices, preserved context, confirmed queue handoff, no self-notification, version history and replies')
     finally:
         os.killpg(server.pid, signal.SIGINT)
         server.wait(timeout=15)
