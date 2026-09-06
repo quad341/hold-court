@@ -4,6 +4,9 @@
 package feed
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -50,11 +53,30 @@ func ParseHold(data []byte) (*Hold, error) {
 // Hold, returning them sorted by ID. Non-JSON files are ignored. dir is
 // treated as read-only, per the feed contract.
 func ScanDir(dir string) ([]*Hold, error) {
+	holds, _, err := Scan(dir)
+	return holds, err
+}
+
+// VersionLength is the length of the hex version string Scan returns.
+const VersionLength = 16
+
+// EmptyVersion is the version Scan reports for a feed with no documents.
+var EmptyVersion = hex.EncodeToString(sha256.New().Sum(nil))[:VersionLength]
+
+// Scan is ScanDir plus a version of the feed: a hex digest over the name
+// and contents of every scanned file, in directory order. The version
+// changes whenever an adapter writes anything different into the feed,
+// including a rewrite that keeps a file's size and modification time, and
+// stays the same when a scan finds identical files, so it is safe to show
+// as "the data version" and to compare across server restarts. It costs
+// nothing beyond the reads ScanDir already does.
+func Scan(dir string) ([]*Hold, string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, fmt.Errorf("feed: scan dir %s: %w", dir, err)
+		return nil, "", fmt.Errorf("feed: scan dir %s: %w", dir, err)
 	}
 
+	digest := sha256.New()
 	var holds []*Hold
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
@@ -63,15 +85,21 @@ func ScanDir(dir string) ([]*Hold, error) {
 		path := filepath.Join(dir, entry.Name())
 		data, err := os.ReadFile(path) //nolint:gosec // entry.Name() is an OS-returned directory entry, not external input
 		if err != nil {
-			return nil, fmt.Errorf("feed: read %s: %w", path, err)
+			return nil, "", fmt.Errorf("feed: read %s: %w", path, err)
 		}
 		h, err := ParseHold(data)
 		if err != nil {
-			return nil, fmt.Errorf("feed: %s: %w", path, err)
+			return nil, "", fmt.Errorf("feed: %s: %w", path, err)
 		}
 		holds = append(holds, h)
+		// Length-prefix each field so (name, contents) pairs cannot collide
+		// by shifting bytes between them.
+		_ = binary.Write(digest, binary.BigEndian, uint64(len(entry.Name())))
+		digest.Write([]byte(entry.Name()))
+		_ = binary.Write(digest, binary.BigEndian, uint64(len(data)))
+		digest.Write(data)
 	}
 
 	sort.Slice(holds, func(i, j int) bool { return holds[i].ID < holds[j].ID })
-	return holds, nil
+	return holds, hex.EncodeToString(digest.Sum(nil))[:VersionLength], nil
 }

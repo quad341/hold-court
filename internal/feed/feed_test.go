@@ -143,6 +143,55 @@ func TestScanDir_MalformedFileReturnsError(t *testing.T) {
 	}
 }
 
+func TestScan_VersionTracksFileContents(t *testing.T) {
+	dir := t.TempDir()
+	writeFixture(t, dir, "hold.json", `{"id":"hold","title":"A"}`)
+	writeFixture(t, dir, "notes.txt", `ignored`)
+
+	_, first, err := Scan(dir)
+	if err != nil {
+		t.Fatalf("Scan returned error: %v", err)
+	}
+	if len(first) != VersionLength {
+		t.Fatalf("version %q has length %d, want %d", first, len(first), VersionLength)
+	}
+	if _, again, _ := Scan(dir); again != first {
+		t.Errorf("unchanged feed changed version: %q -> %q", first, again)
+	}
+
+	// Same size, same name: only the contents differ. A size/mtime
+	// fingerprint could miss this rewrite; the content digest must not.
+	writeFixture(t, dir, "hold.json", `{"id":"hold","title":"B"}`)
+	_, rewritten, err := Scan(dir)
+	if err != nil {
+		t.Fatalf("Scan returned error: %v", err)
+	}
+	if rewritten == first {
+		t.Error("rewriting a file with same-length contents did not change the version")
+	}
+
+	// Non-feed files must not influence the version.
+	writeFixture(t, dir, "notes.txt", `still ignored, but different`)
+	if _, same, _ := Scan(dir); same != rewritten {
+		t.Error("a non-JSON file changed the version")
+	}
+
+	writeFixture(t, dir, "other.json", `{"id":"other"}`)
+	if _, added, _ := Scan(dir); added == rewritten {
+		t.Error("adding a hold did not change the version")
+	}
+}
+
+func TestScan_EmptyDirHasVersion(t *testing.T) {
+	_, version, err := Scan(t.TempDir())
+	if err != nil {
+		t.Fatalf("Scan returned error: %v", err)
+	}
+	if version != EmptyVersion {
+		t.Fatalf("version = %q, want EmptyVersion %q", version, EmptyVersion)
+	}
+}
+
 func writeFixture(t *testing.T, dir, name, content string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {

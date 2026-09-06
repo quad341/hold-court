@@ -119,12 +119,12 @@ func TestFeedSnapshotDoesNotShareMutableSlice(t *testing.T) {
 		}
 	}
 	cache := newFeedCache(dir, time.Hour)
-	first, err := cache.snapshot()
+	first, _, err := cache.snapshot()
 	if err != nil {
 		t.Fatal(err)
 	}
 	first[0], first[1] = first[1], first[0]
-	second, err := cache.snapshot()
+	second, _, err := cache.snapshot()
 	if err != nil || second[0].ID != "a" {
 		t.Fatal("sorting one request changed another request's snapshot")
 	}

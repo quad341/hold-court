@@ -1,12 +1,15 @@
 (function () {
 	"use strict";
 
-	var holds = JSON.parse(document.getElementById("holds-data").textContent);
-	var folders = JSON.parse(document.getElementById("folders-data").textContent);
+	// The page is a shell: holds and folders come from GET /api/holds, first
+	// from this browser's IndexedDB copy of the last document (rendered
+	// immediately), then revalidated against the server by ETag.
+	var holds = [];
+	var folders = [];
 	var recordOnly = JSON.parse(document.getElementById("mode-data").textContent).record_only;
 	var consumerDescription = document.getElementById('consumer-description').textContent;
 	var byID = {};
-	holds.forEach(function (h) { byID[h.id] = h; });
+	var loaded = false; // a holds document (cached or fetched) has been rendered
 
 	var state = {
 		folder: (folders[0] && folders[0].id) || "inbox",
@@ -22,6 +25,8 @@
 		updates: {},
 		saving: false,
 		etag: "",
+		version: "", // feed content version of the rendered document
+		fetchedAt: null, // when the rendered document was downloaded (possibly by an earlier visit)
 	};
 
 	var listEl = document.getElementById("pane-list");
@@ -30,6 +35,10 @@
 	var pendingBarEl = document.getElementById("pending-bar");
 	var cheatsheetEl = document.getElementById("cheatsheet-overlay");
 	var noticeEl = document.getElementById("notice");
+	var cacheNoticeEl = document.getElementById("cache-notice");
+	var cacheNoticeText = document.getElementById("cache-notice-text");
+	var dataStatusEl = document.getElementById("data-status");
+	var rebuildBtn = document.getElementById("rebuild-cache");
 	var liveEl = document.getElementById("live-status");
 	var activityEl = document.getElementById("activity-button");
 	var searchInput = document.getElementById('search-input');
@@ -44,6 +53,46 @@
 		noticeEl.hidden = !message;
 	}
 
+	// cacheNotice is separate from notice so a save error or read-state
+	// message cannot overwrite the record of a data invalidation; it stays
+	// until dismissed.
+	function cacheNotice(message) {
+		cacheNoticeText.textContent = message;
+		cacheNoticeEl.hidden = false;
+	}
+
+	function clock(date) {
+		return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+	}
+
+	function renderDataStatus(suffix) {
+		if (!state.version) { dataStatusEl.textContent = "Loading holds…"; return; }
+		dataStatusEl.textContent = "Data " + state.version + " · fetched " + clock(state.fetchedAt) + (suffix ? " · " + suffix : "");
+	}
+
+	// --- local holds cache (IndexedDB; localStorage is too small for the
+	// document and Cache Storage needs a secure context, which a plain
+	// http:// tailnet URL is not) -------------------------------------
+	var CACHE_DB = "hold-court", CACHE_STORE = "snapshots", CACHE_KEY = "holds";
+	function cacheTransaction(mode, operation) {
+		return new Promise(function (resolve, reject) {
+			if (!window.indexedDB) { reject(new Error("IndexedDB unavailable")); return; }
+			var open = indexedDB.open(CACHE_DB, 1);
+			open.onupgradeneeded = function () { open.result.createObjectStore(CACHE_STORE); };
+			open.onerror = function () { reject(open.error || new Error("Could not open the local cache")); };
+			open.onsuccess = function () {
+				var db = open.result;
+				var tx = db.transaction(CACHE_STORE, mode);
+				var request = operation(tx.objectStore(CACHE_STORE));
+				tx.oncomplete = function () { db.close(); resolve(request && request.result); };
+				tx.onerror = tx.onabort = function () { db.close(); reject(tx.error || new Error("Local cache transaction failed")); };
+			};
+		});
+	}
+	function readCache() { return cacheTransaction("readonly", function (store) { return store.get(CACHE_KEY); }); }
+	function writeCache(record) { return cacheTransaction("readwrite", function (store) { return store.put(record, CACHE_KEY); }); }
+	function clearCache() { return cacheTransaction("readwrite", function (store) { return store.delete(CACHE_KEY); }); }
+
 	function persistDrafts() {
 		try {
 			localStorage.setItem("hold-court-drafts-v1", JSON.stringify({ pending: state.pending, drafts: state.drafts }));
@@ -53,7 +102,6 @@
 		var backup = JSON.parse(localStorage.getItem("hold-court-drafts-v1") || "null");
 		if (backup) { state.pending = backup.pending || {}; state.drafts = backup.drafts || {}; }
 	} catch (_) { notice("Could not restore saved drafts."); }
-	holds.forEach(function (h) { if (h.updated) state.updates[h.id] = true; });
 
 	function isUnreadUpdate(h) { return !!h.ruling && h.updated; }
 
@@ -107,6 +155,7 @@
 	}
 
 	function renderFolders() {
+		if (!loaded) return; // keep the server-rendered nav until a document arrives
 		var html = "";
 		folders.forEach(function (f) {
 			if (!f.heading) f.count = holds.filter(function (h) { return matchesFolder(h, f.id); }).length;
@@ -124,6 +173,7 @@
 	}
 
 	function renderList() {
+		if (!loaded) return;
 		updateActivity();
 		var list = visibleHolds();
 		if (state.cursor >= list.length) state.cursor = Math.max(0, list.length - 1);
@@ -178,6 +228,7 @@
 	}
 
 	function renderReading(hold) {
+		if (!loaded) return;
 		hold = hold || currentHold();
 		if (!hold) {
 			readingEl.dataset.holdId = "";
@@ -418,39 +469,93 @@
 		activityEl.textContent = 'Unread updates (' + Object.keys(state.updates).length + ')';
 	}
 
+	// applySnapshot replaces the rendered holds with a new document while
+	// preserving the operator's place: selection, scroll, and the note
+	// textarea survive, and a changed active hold is offered via Show update
+	// rather than swapped underneath them.
+	function applySnapshot(doc) {
+		var selected = readingHold();
+		var selectedID = selected && selected.id;
+		holds = doc.holds || [];
+		byID = {};
+		holds.forEach(function (h) { byID[h.id] = h; });
+		// Keep the reading document stable without retaining its row in a
+		// folder it no longer belongs to.
+		if (selected && !byID[selectedID]) {
+			selected = Object.assign({}, selected, {state:'stood-down', resolved_reason:'Removed from the current feed', revision:selected.revision.replace(/-removed$/, '') + '-removed', activity_revision:selected.activity_revision.replace(/-removed$/, '') + '-removed'});
+			state.updates[selectedID] = true;
+			 holds.push(selected); byID[selectedID] = selected;
+		}
+		folders = doc.folders || [];
+		if (!loaded) { loaded = true; renderPendingBar(); }
+		var index = visibleHolds().findIndex(function (h) { return h.id === selectedID; });
+		state.cursor = index;
+		updateActivity(); renderFolders(); renderList();
+		var button = document.getElementById('show-update');
+		if (button && byID[selectedID]) button.hidden = byID[selectedID].activity_revision === displayedActivityRevision;
+		if (!selectedID) { state.cursor = 0; renderReading(); renderList(); }
+	}
+
+	// acceptDocument takes a freshly downloaded holds document, renders it,
+	// records it in the local cache, and reports an invalidation: the
+	// version is the feed's content version, so it moves when the adapter
+	// writes different data, not when this operator reads or rules.
+	function acceptDocument(text, etag, reason) {
+		var doc = JSON.parse(text);
+		var previous = state.version;
+		var now = new Date();
+		state.etag = etag;
+		state.version = doc.version || "";
+		state.fetchedAt = now;
+		applySnapshot(doc);
+		renderDataStatus("");
+		var change = previous && previous !== state.version ? "version " + previous + " -> " + state.version : "version " + state.version + (previous ? " (unchanged)" : "");
+		if (reason === "rebuild") cacheNotice("Data cache rebuilt: " + change + " at " + clock(now) + " (manual rebuild).");
+		else if (previous && previous !== state.version) cacheNotice("Data cache rebuilt: " + change + " at " + clock(now) + " (feed changed on the server).");
+		writeCache({ etag: etag, version: state.version, fetchedAt: now.toISOString(), body: text })
+			.catch(function () { renderDataStatus("not cached in this browser"); });
+	}
+
 	var polling = false;
+	var pollController = null;
+	var rebuilding = false;
 	function pollHolds() {
-		if (polling || state.saving) return;
+		if (polling || state.saving || rebuilding) return;
 		polling = true;
-		fetch('/api/holds', { headers: state.etag ? {'If-None-Match': state.etag} : {}, cache: 'no-store' })
+		pollController = typeof AbortController === "function" ? new AbortController() : null;
+		fetch('/api/holds', { headers: state.etag ? {'If-None-Match': state.etag} : {}, cache: 'no-store', signal: pollController && pollController.signal })
 			.then(function (resp) {
 				if (resp.status === 304) return null;
 				if (!resp.ok) throw new Error('Live updates unavailable; retrying automatically');
-				state.etag = resp.headers.get('ETag') || '';
-				return resp.json();
-			}).then(function (data) {
-				liveEl.textContent = 'Live · checked ' + new Date().toLocaleTimeString();
-				if (!data) return;
-				var selected = readingHold();
-				var selectedID = selected && selected.id;
-				holds = data.holds;
-				byID = {};
-				holds.forEach(function (h) { byID[h.id] = h; });
-				// Keep the reading document stable without retaining its row in a
-				// folder it no longer belongs to.
-				if (selected && !byID[selectedID]) {
-					selected = Object.assign({}, selected, {state:'stood-down', resolved_reason:'Removed from the current feed', revision:selected.revision.replace(/-removed$/, '') + '-removed', activity_revision:selected.activity_revision.replace(/-removed$/, '') + '-removed'});
-					state.updates[selectedID] = true;
-					 holds.push(selected); byID[selectedID] = selected;
-				}
-				folders = data.folders;
-				var index = visibleHolds().findIndex(function (h) { return h.id === selectedID; });
-				state.cursor = index;
-				updateActivity(); renderFolders(); renderList();
-				var button = document.getElementById('show-update');
-				if (button && byID[selectedID]) button.hidden = byID[selectedID].activity_revision === displayedActivityRevision;
-				if (!selectedID && visibleHolds().length) { state.cursor = 0; renderReading(); renderList(); }
-			}).catch(function (err) { liveEl.textContent = err.message; }).finally(function () { polling = false; });
+				var etag = resp.headers.get('ETag') || '';
+				return resp.text().then(function (text) { return { text: text, etag: etag }; });
+			}).then(function (result) {
+				var now = new Date();
+				liveEl.textContent = 'Live · checked ' + now.toLocaleTimeString();
+				if (!result) { renderDataStatus('verified ' + clock(now)); return; }
+				acceptDocument(result.text, result.etag, 'poll');
+			}).catch(function (err) { if (err.name !== 'AbortError') liveEl.textContent = err.message; }).finally(function () { polling = false; pollController = null; });
+	}
+
+	// rebuildCache is the operator's reset: drop this browser's copy, make
+	// the server re-read the feed directory, and render whatever comes back.
+	// It touches only cached data; drafts and pending rulings are untouched.
+	function rebuildCache() {
+		if (rebuilding) return;
+		rebuilding = true;
+		rebuildBtn.disabled = true;
+		if (pollController) pollController.abort();
+		renderDataStatus('rebuilding…');
+		clearCache().catch(function () {}).then(function () {
+			return fetch('/api/holds/rescan', { method: 'POST', cache: 'no-store' });
+		}).then(function (resp) {
+			if (!resp.ok) throw new Error('Rebuild failed (HTTP ' + resp.status + '). The data shown is unchanged.');
+			var etag = resp.headers.get('ETag') || '';
+			return resp.text().then(function (text) { acceptDocument(text, etag, 'rebuild'); });
+		}).catch(function (err) { notice(err.message); renderDataStatus(''); }).finally(function () {
+			rebuilding = false;
+			rebuildBtn.disabled = false;
+		});
 	}
 
 	function applyFilter(query) {
@@ -658,11 +763,27 @@
 	});
 
 	activityEl.addEventListener('click', function () { setFolder('updates'); });
+	rebuildBtn.addEventListener('click', rebuildCache);
+	document.getElementById('cache-notice-dismiss').addEventListener('click', function () { cacheNoticeEl.hidden = true; });
 	window.addEventListener('beforeunload', function (ev) {
 		if (Object.keys(state.pending).length || Object.values(state.drafts).some(Boolean)) {
 			ev.preventDefault(); ev.returnValue = '';
 		}
 	});
-	updateActivity(); renderAll(); pollHolds();
-	setInterval(pollHolds, 5000);
+	// Render the cached document first so the bench is usable at once on a
+	// slow link, then revalidate; without a usable cache, the first poll
+	// downloads the document.
+	readCache().then(function (record) {
+		if (!record || !record.body || !record.version) return;
+		state.etag = record.etag || "";
+		state.version = record.version;
+		state.fetchedAt = new Date(record.fetchedAt);
+		applySnapshot(JSON.parse(record.body));
+		renderDataStatus("cached, checking…");
+	}).catch(function () {
+		state.etag = ""; state.version = ""; state.fetchedAt = null;
+	}).then(function () {
+		pollHolds();
+		setInterval(pollHolds, 5000);
+	});
 })();
