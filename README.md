@@ -115,6 +115,16 @@ The header shows connection status and an **Unread updates** button for incoming
 An adapter may refresh its source less frequently; the browser reflects the
 latest files the adapter has written.
 
+The page is a small shell; hold contents arrive from `/api/holds` as one
+JSON document, gzip-compressed when the browser accepts it. This browser keeps
+the last document in IndexedDB and shows it immediately on the next visit,
+then revalidates against the server. The header shows the feed data version
+and when this browser fetched it. When the feed on the server changes, the
+page refetches and shows a dismissable notice naming the old and new versions
+and the time. **Rebuild cache** drops the local copy, makes the server re-read
+the feed directory, and shows the same notice. It only re-reads data, so it is
+always safe; drafts and pending rulings are untouched.
+
 **Inbox** contains holds awaiting their first saved decision, including holds
 that have never been read. Saving any ruling, including Discuss, moves its row
 to **Pending** immediately. Pending includes queued work, discussions, requests

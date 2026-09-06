@@ -113,7 +113,23 @@ instruction. An insufficient response returns to discussion for clarification.
 Mouse works everywhere; keys are the fast path. A visible pending-rulings bar
 mirrors the count (`s` to commit), so partial work is never silently lost.
 
-The browser polls `/api/holds` every five seconds using ETag revalidation.
+The page is a shell (nav, counts, empty state); holds and folders are one
+JSON document from `/api/holds`, never inlined, so the page stays small over a
+tailnet. The document carries a `version`, the feed's content digest
+(name and bytes of every feed file), and a strong ETag over the whole
+document including read state and rulings; `Cache-Control: no-cache`, so a
+client always revalidates, and an unchanged document costs a 304. HTML, JSON,
+and static assets are gzip-compressed for clients that accept it.
+
+The browser keeps the last document in IndexedDB, renders it before the first
+request completes, and then polls `/api/holds` every five seconds using ETag
+revalidation. A new ETag with the same version means the operator's own state
+moved; a new version means the feed changed, and the page says so in a
+dismissable notice (old version, new version, time). The header shows the
+current version and fetch time. **Rebuild cache** drops the local copy and
+calls `POST /api/holds/rescan`, which bypasses the server's feed cache,
+re-reads the directory, and returns the full document. It is always safe: it
+only reads data.
 Updates preserve selection, scroll, and the textarea DOM. Changed content for
 the active hold is offered through Show update; unseen incoming activity on submitted holds appears in Unread updates.
 Read acknowledgements include the displayed content revision, so a new result
