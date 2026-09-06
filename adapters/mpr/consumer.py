@@ -97,9 +97,15 @@ def enqueue(config, request):
 
 
 def command(config, args, body=None):
+    # systemd's PATH can omit user-installed tools. gc itself invokes bd, so
+    # absolute executable paths alone are insufficient for the handoff.
+    tool_dirs = dict.fromkeys(str(Path(config[name]).parent) for name in ['bd', 'gc', 'gh']
+                              if Path(config[name]).is_absolute())
+    environment = {**os.environ, 'GC_CITY_ROOT': config['city_root'],
+                   'PATH': os.pathsep.join([*tool_dirs, os.environ.get('PATH', os.defpath)])}
     result = subprocess.run(args, cwd=config['city_root'], input=body, capture_output=True,
                             text=True, timeout=90, check=True,
-                            env={**os.environ, 'GC_CITY_ROOT': config['city_root']})
+                            env=environment)
     return json.loads(result.stdout) if result.stdout.strip() else None
 
 
@@ -215,10 +221,13 @@ def worker(config):
         except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
             # Dispatch failure is visible; it is never disguised as agent work.
             job = read(path)
-            job['last_error'] = str(error)
+            detail = str(error)
+            if isinstance(error, subprocess.CalledProcessError) and error.stderr:
+                detail += '\n' + error.stderr.strip()[-4000:]
+            job['last_error'] = detail
             atomic(path, job)
-            publish(config, job['request'], 'failed', f"Handoff/sync failed; worker will retry: {error}")
-            print(f"{path.name}: {error}", file=sys.stderr)
+            publish(config, job['request'], 'failed', f"Handoff/sync failed; worker will retry: {detail}")
+            print(f"{path.name}: {detail}", file=sys.stderr)
 
 
 def main():
