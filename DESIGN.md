@@ -42,7 +42,7 @@ Three panes, with the list and reading pane stacked so long titles have room:
 | Ruled   4  |   owner/repo #5795 · held date                           |
 | Executed 6 |---------------------------------------------------------|
 | ----       | READING PANE: question, prepared review, saved decision  |
-| guard    2 | and consumer result. Discussion thread is future work.  |
+| guard    2 | and consumer result. History and discussion have a separate tab.  |
 | policy   3 |                                                         |
 | scope    5 | [ruling bar + note + explicit execution mode]           |
 +------------+---------------------------------------------------------+
@@ -131,6 +131,10 @@ A ruling writes `rulings/<hold-id>.json`:
 
 ```jsonc
 {
+  "id": "stable request hash",
+  "repo": "owner/repo",
+  "pr": 42,
+  "head_sha": "exact reviewed commit",
   "hold_id": "...",
   "action": "proceed" | "changes" | "close" | "discuss",
   "note": "free text",
@@ -150,12 +154,18 @@ It is the bench, not the bailiff.
 
 ## Discussion + read state
 
-SQLite, one file:
-- `threads(hold_id, author, body_md, at)` — the embedded discussion. The
-  on-ruling hook's counterpart (`on_comment`) lets an agent reply into the
-  thread, so maintainer and agent converse on the card. (later: GitHub mirror)
-- `reads(user, hold_id, last_read_at)` — unread computation.
-- `prefs(user, key, value)` — folder order, theme, etc.
+SQLite retains read acknowledgements and an append-only `hold_history` log
+of observed review, decision, result, and conversation revisions. Incoming
+activity has a separate revision from the operator's own saved choice. The
+History & discussion tab presents the conversation and expandable versions;
+versions not observed by the server cannot be reconstructed.
+
+Consumers correlate results with `ruling_id` and publish messages in
+`rulings/<hold-id>.thread.json` as `{"messages": [{"id": "...", "author": "...",
+"body": "...", "at": "RFC3339 time"}]}`. Messages from superseded decisions
+remain visible; their results cannot overwrite the current decision's status.
+See the [MPR decision contract](docs/mpr-decision-flow.md) for the optional agent
+adapter and its execution boundaries.
 
 ## v1 scope (the playable build)
 

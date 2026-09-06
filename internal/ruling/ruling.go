@@ -46,6 +46,10 @@ func safeHoldID(id string) error {
 
 // Ruling is the JSON document written to rulings/<hold-id>.json.
 type Ruling struct {
+	ID      string    `json:"id,omitempty"`
+	Repo    string    `json:"repo,omitempty"`
+	PR      int       `json:"pr,omitempty"`
+	HeadSHA string    `json:"head_sha,omitempty"`
 	HoldID  string    `json:"hold_id"`
 	Action  Action    `json:"action"`
 	Note    string    `json:"note"`
@@ -56,8 +60,40 @@ type Ruling struct {
 // Result is the JSON document a ruling's consumer writes back to
 // rulings/<hold-id>.result.json once it has acted on the ruling.
 type Result struct {
-	Status  string `json:"status"`
-	Summary string `json:"summary"`
+	RulingID string    `json:"ruling_id,omitempty"`
+	Status   string    `json:"status"`
+	Summary  string    `json:"summary"`
+	Thread   []Message `json:"thread,omitempty"`
+}
+
+// Message is a durable consumer reply associated with a ruling's conversation.
+type Message struct {
+	ID     string `json:"id"`
+	Author string `json:"author"`
+	Body   string `json:"body"`
+	At     string `json:"at"`
+}
+
+// ReadThread reads replies across all decisions on a hold, including replies
+// that arrive after a newer decision has been saved.
+func ReadThread(dir, holdID string) ([]Message, error) {
+	if err := safeHoldID(holdID); err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(filepath.Join(dir, holdID+".thread.json")) //nolint:gosec // holdID validated above
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var thread struct {
+		Messages []Message `json:"messages"`
+	}
+	if err := json.Unmarshal(data, &thread); err != nil {
+		return nil, err
+	}
+	return thread.Messages, nil
 }
 
 // Write validates r and saves it to dir/<hold_id>.json, creating dir if
@@ -80,7 +116,19 @@ func Write(dir string, r Ruling) error {
 	}
 
 	path := filepath.Join(dir, r.HoldID+".json")
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	tmp, err := os.CreateTemp(dir, ".ruling-*.tmp")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
 		return fmt.Errorf("ruling: write %s: %w", path, err)
 	}
 	return nil

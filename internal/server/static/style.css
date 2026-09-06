@@ -54,8 +54,8 @@ body {
 
 #app {
 	display: grid;
-	grid-template-columns: 180px minmax(0, 1fr);
-	grid-template-rows: minmax(140px, 30vh) minmax(0, 1fr);
+	grid-template-columns: var(--folder-width, 180px) 8px minmax(0, 1fr);
+	grid-template-rows: var(--list-height, 28%) 10px minmax(0, 1fr);
 	flex: 1 1 auto;
 	min-height: 0;
 }
@@ -66,9 +66,19 @@ body {
 	padding: 0.5rem;
 }
 
-#pane-folders { grid-row: 1 / 3; }
-#pane-list { grid-column: 2; border-right: none; border-bottom: 1px solid var(--border); }
-#pane-reading { grid-column: 2; border-right: none; }
+#pane-folders { grid-row: 1 / 4; grid-column: 1; }
+#pane-list { grid-column: 3; grid-row: 1; border-right: none; }
+#pane-reading { grid-column: 3; grid-row: 3; border-right: none; display: flex; flex-direction: column; padding: 0; overflow: hidden; min-height: 0; }
+#reading-content { flex: 1 1 auto; overflow-y: auto; min-height: 0; padding: 0.75rem; }
+#folder-divider, #reading-divider { background: var(--border); touch-action: none; }
+#folder-divider { grid-column: 2; grid-row: 1 / 4; cursor: col-resize; }
+#reading-divider { grid-column: 3; grid-row: 2; cursor: row-resize; border-top: 2px solid Canvas; border-bottom: 2px solid Canvas; }
+#folder-divider:hover, #reading-divider:hover, [role="separator"]:focus-visible { background: var(--accent); outline: none; }
+.history-entry { border-bottom: 1px solid var(--border); padding: 0.65rem 0; }
+.history-entry summary { cursor: pointer; }
+.history-entry pre { white-space: pre-wrap; }
+.history-tabs { display: flex; gap: 0.5rem; margin: 0.75rem 0; }
+.history-tabs button { font: inherit; }
 #app #pane-list li { white-space: normal; overflow-wrap: anywhere; }
 .hold-title { display: block; }
 .hold-meta { display: block; opacity: 0.65; font-size: 0.85em; font-weight: normal; margin-top: 0.25rem; }
@@ -86,7 +96,7 @@ body {
 #pane-reading { overflow-wrap: anywhere; }
 #pane-reading img { max-width: 100%; }
 @media (max-width: 650px) {
-	#app { grid-template-columns: 110px minmax(0, 1fr); }
+	#app { --folder-width: 110px; }
 	#app-header { flex-wrap: wrap; }
 	#app-header .tagline { display: none; }
 	#pane-folders li { white-space: normal; overflow-wrap: anywhere; }
@@ -136,12 +146,12 @@ body {
 #pane-reading .review-body pre { overflow-x: auto; }
 
 #ruling-bar {
-	position: sticky;
-	bottom: 0;
+	flex: 0 0 auto;
 	background: Canvas;
-	border-top: 1px solid var(--border);
-	padding: 0.5rem 0;
-	margin-top: 1rem;
+	border-top: 3px solid var(--border);
+	padding: 0.5rem 0.75rem;
+	max-height: 55%;
+	overflow-y: auto;
 }
 
 #ruling-bar button {

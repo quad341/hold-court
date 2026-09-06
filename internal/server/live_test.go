@@ -68,7 +68,7 @@ func TestLiveResultReopensUnreadUntilThatRevisionIsRead(t *testing.T) {
 			t.Fatalf("read failed: %s", w.Body.String())
 		}
 	}
-	markRead(holds[0].Revision)
+	markRead(holds[0].ActivityRevision)
 	read, _ := liveSnapshot(t, h)
 	if read[0].Unread {
 		t.Fatal("acknowledged hold still unread")
@@ -79,12 +79,12 @@ func TestLiveResultReopensUnreadUntilThatRevisionIsRead(t *testing.T) {
 		t.Fatal("new result must signal unread activity")
 	}
 	// A delayed acknowledgement of old content must not mark the new result read.
-	markRead(holds[0].Revision)
+	markRead(holds[0].ActivityRevision)
 	stillUpdated, _ := liveSnapshot(t, h)
 	if !stillUpdated[0].Updated {
 		t.Fatal("old acknowledgement swallowed new activity")
 	}
-	markRead(updated[0].Revision)
+	markRead(updated[0].ActivityRevision)
 	final, _ := liveSnapshot(t, h)
 	if final[0].Unread || final[0].Updated {
 		t.Fatal("reading the new revision did not clear activity")
@@ -127,5 +127,76 @@ func TestFeedSnapshotDoesNotShareMutableSlice(t *testing.T) {
 	second, err := cache.snapshot()
 	if err != nil || second[0].ID != "a" {
 		t.Fatal("sorting one request changed another request's snapshot")
+	}
+}
+
+func TestOwnDecisionDoesNotCreateIncomingActivityAndHistoryPersists(t *testing.T) {
+	h, dir := newHoldFixtureHandler(t, false)
+	before, _ := liveSnapshot(t, h)
+	req := httptest.NewRequest(http.MethodPost, "/api/holds/"+fixtureHoldID+"/read", strings.NewReader(`{"revision":"`+before[0].ActivityRevision+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(httptest.NewRecorder(), req)
+	writeRulingFixture(t, dir)
+	after, _ := liveSnapshot(t, h)
+	if after[0].Updated || after[0].ActivityRevision != before[0].ActivityRevision || after[0].Revision == before[0].Revision {
+		t.Fatal("own decision must change displayed state but not incoming activity")
+	}
+	getHistory := func() []struct {
+		Kind string `json:"kind"`
+	} {
+		t.Helper()
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/holds/"+fixtureHoldID+"/history", nil))
+		var entries []struct {
+			Kind string `json:"kind"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &entries); err != nil {
+			t.Fatal(err)
+		}
+		return entries
+	}
+	if len(getHistory()) != 2 {
+		t.Fatal("expected a review and a decision")
+	}
+	liveSnapshot(t, h)
+	if len(getHistory()) != 2 {
+		t.Fatal("unchanged polling must not create history")
+	}
+	if err := os.WriteFile(filepath.Join(dir, fixtureHoldID+".thread.json"), []byte(`{"messages":[{"id":"reply-1","author":"agent","body":"A substantive answer","at":"2026-09-05T12:00:00Z"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	replied, _ := liveSnapshot(t, h)
+	if !replied[0].Updated || len(replied[0].Thread) != 1 {
+		t.Fatal("reply did not produce incoming activity")
+	}
+	if entries := getHistory(); len(entries) != 3 || entries[0].Kind != "discussion" {
+		t.Fatalf("missing discussion history: %+v", entries)
+	}
+}
+
+func TestFollowupQueueDoesNotCreateIncomingActivity(t *testing.T) {
+	h, dir := newHoldFixtureHandler(t, false)
+	writeRulingFixture(t, dir)
+	resultPath := filepath.Join(dir, fixtureHoldID+".result.json")
+	if err := os.WriteFile(resultPath, []byte(`{"status":"reply_ready","summary":"Answer"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := liveSnapshot(t, h)
+	req := httptest.NewRequest(http.MethodPost, "/api/holds/"+fixtureHoldID+"/read", strings.NewReader(`{"revision":"`+before[0].ActivityRevision+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(httptest.NewRecorder(), req)
+	if err := os.WriteFile(resultPath, []byte(`{"status":"queued","summary":"Follow-up queued"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := liveSnapshot(t, h)
+	if after[0].Updated || after[0].ActivityRevision != before[0].ActivityRevision {
+		t.Fatal("follow-up queue created incoming activity")
+	}
+	if err := os.WriteFile(resultPath, []byte(`{"status":"in_progress","summary":"Follow-up acknowledged"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	acknowledged, _ := liveSnapshot(t, h)
+	if !acknowledged[0].Updated {
+		t.Fatal("agent acknowledgement did not create incoming activity")
 	}
 }
