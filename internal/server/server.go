@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/quad341/hold-court/internal/feed"
+	"github.com/quad341/hold-court/internal/group"
 	"github.com/quad341/hold-court/internal/ruling"
 	"github.com/quad341/hold-court/internal/store"
 )
@@ -40,6 +41,11 @@ type Config struct {
 	// OnRuling is the optional hook command run, with the ruling as JSON on
 	// stdin, after a ruling is written. Empty means no hook.
 	OnRuling []string
+	// GroupsFile optionally points to a curator-authored JSON file (see
+	// internal/group) proposing a group and ruling for some holds. Empty
+	// means the curator-groupings feature is inactive, the same posture as
+	// an unset OnRuling.
+	GroupsFile string
 	// ConsumerDescription explains the configured handoff to the operator.
 	ConsumerDescription string
 	// User identifies the current maintainer for read state and ruled_by.
@@ -120,6 +126,9 @@ type holdJSON struct {
 	Ruling              *ruling.Ruling   `json:"ruling,omitempty"`
 	Result              *ruling.Result   `json:"result,omitempty"`
 	ResolvedReason      string           `json:"resolved_reason,omitempty"`
+	Group               string           `json:"group,omitempty"`
+	ProposedAction      string           `json:"proposed_action,omitempty"`
+	ProposedNote        string           `json:"proposed_note,omitempty"`
 }
 
 // folderJSON is one entry in the folders pane: either a selectable folder
@@ -173,9 +182,17 @@ func (s *server) holdViews(refresh bool) ([]holdJSON, string, error) {
 	}
 	sort.SliceStable(holds, func(i, j int) bool { return holds[i].HeldAt.After(holds[j].HeldAt) })
 
+	var proposals map[string]group.Proposal
+	if s.cfg.GroupsFile != "" {
+		proposals, err = group.Read(s.cfg.GroupsFile)
+		if err != nil {
+			return nil, "", err
+		}
+	}
+
 	views := make([]holdJSON, 0, len(holds))
 	for _, h := range holds {
-		v, err := s.buildHoldView(h)
+		v, err := s.buildHoldView(h, proposals)
 		if err != nil {
 			return nil, "", err
 		}
@@ -263,7 +280,7 @@ func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(page.Bytes())
 }
 
-func (s *server) buildHoldView(h *feed.Hold) (holdJSON, error) {
+func (s *server) buildHoldView(h *feed.Hold, proposals map[string]group.Proposal) (holdJSON, error) {
 	reviewHTML, err := renderMarkdown(h.ReviewBodyMD)
 	if err != nil {
 		return holdJSON{}, fmt.Errorf("server: hold %s: %w", h.ID, err)
@@ -337,6 +354,7 @@ func (s *server) buildHoldView(h *feed.Hold) (holdJSON, error) {
 	if readRevision == "" && rl != nil && (incomingResult != "" || len(thread) > 0) {
 		updated = true
 	}
+	proposal := proposals[group.Key(h.Repo, h.PR)]
 	return holdJSON{
 		ID:                  h.ID,
 		Thread:              thread,
@@ -360,6 +378,9 @@ func (s *server) buildHoldView(h *feed.Hold) (holdJSON, error) {
 		Ruling:              rl,
 		Result:              result,
 		ResolvedReason:      h.ResolvedReason,
+		Group:               proposal.Group,
+		ProposedAction:      proposal.Action,
+		ProposedNote:        proposal.Note,
 	}, nil
 }
 
@@ -383,16 +404,22 @@ func holdState(rulingsDir string, h *feed.Hold) string {
 
 // buildFolders computes the folders pane: the fixed state and unread-activity folders
 // (always present, even at zero count), then, if any hold carries a class,
-// a divider followed by one folder per class DESIGN.md's example mockup
-// shows both kinds side by side, so v1 treats them as two independent
-// selectable groupings rather than picking one.
+// a divider followed by one folder per class, and, if any hold carries a
+// curator-proposed group, a second divider followed by one folder per group.
+// DESIGN.md's example mockup shows state and class side by side, so v1
+// treats state/class/group as three independent selectable groupings rather
+// than picking one.
 func buildFolders(views []holdJSON) []folderJSON {
 	stateCounts := map[string]int{}
 	classCounts := map[string]int{}
+	groupCounts := map[string]int{}
 	for _, v := range views {
 		stateCounts[v.State]++
 		if v.Class != "" {
 			classCounts[v.Class]++
+		}
+		if v.Group != "" {
+			groupCounts[v.Group]++
 		}
 	}
 
@@ -417,6 +444,19 @@ func buildFolders(views []holdJSON) []folderJSON {
 		}
 	}
 
+	if len(groupCounts) > 0 {
+		folders = append(folders, folderJSON{Label: "----", Heading: true})
+
+		names := make([]string, 0, len(groupCounts))
+		for g := range groupCounts {
+			names = append(names, g)
+		}
+		sort.Strings(names)
+		for _, g := range names {
+			folders = append(folders, folderJSON{ID: "group:" + g, Label: g, Count: groupCounts[g]})
+		}
+	}
+
 	return folders
 }
 
@@ -425,6 +465,7 @@ func filterByFolder(views []holdJSON, folderID string) []holdJSON {
 		folderID = "pending"
 	} // Legacy folder links.
 	className, isClass := strings.CutPrefix(folderID, "class:")
+	groupName, isGroup := strings.CutPrefix(folderID, "group:")
 
 	var out []holdJSON
 	for _, v := range views {
@@ -436,6 +477,12 @@ func filterByFolder(views []holdJSON, folderID string) []holdJSON {
 		}
 		if isClass {
 			if v.Class == className {
+				out = append(out, v)
+			}
+			continue
+		}
+		if isGroup {
+			if v.Group == groupName {
 				out = append(out, v)
 			}
 			continue

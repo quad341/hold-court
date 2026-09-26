@@ -105,14 +105,28 @@
 
 	function isUnreadUpdate(h) { return !!h.ruling && h.updated; }
 
+	var VALID_ACTIONS = ["proceed", "changes", "close", "discuss"];
+
 	function matchesFolder(h, id) {
 		if (id === 'updates') return isUnreadUpdate(h);
 		if (id.indexOf('class:') === 0) return h.class === id.slice(6);
+		if (id.indexOf('group:') === 0) return h.group === id.slice(6);
 		return h.state === id;
 	}
 
 	function folderHolds() {
 		return holds.filter(function (h) { return matchesFolder(h, state.folder); });
+	}
+
+	// groupEligibleHolds is the shared predicate behind "Accept group" (which
+	// stages these) and its banner (which just counts them): a hold's own
+	// proposed_action must be one of the four known rulings, folder-state
+	// inbox, and not already staged — never overwrite an existing pending
+	// entry, whether it was set by hand or by an earlier group accept.
+	function groupEligibleHolds(members) {
+		return members.filter(function (h) {
+			return h.state === 'inbox' && VALID_ACTIONS.indexOf(h.proposed_action) !== -1 && !state.pending[h.id];
+		});
 	}
 
 	function readingHold() { return byID[readingEl.dataset.holdId] || null; }
@@ -200,11 +214,72 @@
 					'<li class="' + classes.join(" ") + '" data-hold-id="' + escapeHTML(h.id) + '">' +
 					dot + '<span class="hold-title">' + escapeHTML(h.title) + '</span>' +
 					'<span class="hold-meta">' + escapeHTML(h.repo) + ' #' + h.pr + ' · ' + (h.author ? '@' + escapeHTML(h.author) : 'Author unknown') + ' · ' + escapeHTML(age) +
+					(h.group ? ' · <span class="group-tag">' + escapeHTML(h.group) + '</span>' : '') +
 					(state.updates[h.id] ? ' · <span class="activity-tag">' + (h.result && h.result.status === 'reply_ready' ? 'Reply ready' : 'Updated') + '</span>' : '') + '</span></li>'
 				);
 			})
 			.join("");
-		listEl.innerHTML = "<ul>" + html + "</ul>";
+		listEl.innerHTML = renderGroupBanner() + "<ul>" + html + "</ul>";
+	}
+
+	// renderGroupBanner shows the current group folder's proposed ruling
+	// (derived from the first member hold that carries one — display only;
+	// Accept group below stages each hold's own proposed_action/proposed_note,
+	// not this derived one) and lets the operator accept or reject the whole
+	// group in one action. Returns "" outside a group: folder, or when no
+	// member hold has a proposed_action to show.
+	function renderGroupBanner() {
+		if (state.folder.indexOf('group:') !== 0) return '';
+		var groupName = state.folder.slice(6);
+		var members = folderHolds();
+		var proposalHold = members.find(function (h) { return h.proposed_action; });
+		if (!proposalHold) return '';
+		var eligible = groupEligibleHolds(members);
+		return (
+			'<div id="group-banner">' +
+			'<p><strong>' + escapeHTML(groupName) + '</strong> proposes <strong>' + escapeHTML(proposalHold.proposed_action) + '</strong>' +
+			(proposalHold.proposed_note ? ': ' + escapeHTML(proposalHold.proposed_note) : '') + '</p>' +
+			'<button type="button" id="accept-group"' + (eligible.length ? '' : ' disabled') + '>Accept group (' + eligible.length + ')</button> ' +
+			'<button type="button" id="reject-group">Reject group</button>' +
+			'</div>'
+		);
+	}
+
+	// acceptGroup stages {action, note} for every eligible hold in the
+	// current group folder, using that hold's OWN proposed_action/
+	// proposed_note (not the banner's single derived display value — group
+	// members can each carry their own note). It flows through the same
+	// state.pending + persistDrafts + savePendingRulings path as a manual
+	// per-item decision, so saving is unchanged and a later manual override
+	// (p/c/x/d or the reading-pane buttons) still always wins.
+	function acceptGroup() {
+		if (state.folder.indexOf('group:') !== 0) return;
+		var groupName = state.folder.slice(6);
+		var members = folderHolds();
+		var eligible = groupEligibleHolds(members);
+		eligible.forEach(function (h) {
+			state.pending[h.id] = { action: h.proposed_action, note: h.proposed_note || '', revision: h.revision };
+		});
+		persistDrafts();
+		renderList(); renderReading(); renderPendingBar();
+		notice(eligible.length + ' hold' + (eligible.length === 1 ? '' : 's') + ' staged from "' + groupName + '" — press s to save.');
+	}
+
+	// rejectGroup clears any pending (unsaved) entry for every hold in the
+	// current group folder, whether staged by Accept group or by hand, and
+	// writes nothing to disk — purely undoes staging so the operator can
+	// review the group's holds individually.
+	function rejectGroup() {
+		if (state.folder.indexOf('group:') !== 0) return;
+		var groupName = state.folder.slice(6);
+		var members = folderHolds();
+		var cleared = 0;
+		members.forEach(function (h) {
+			if (state.pending[h.id]) { delete state.pending[h.id]; cleared++; }
+		});
+		persistDrafts();
+		renderList(); renderReading(); renderPendingBar();
+		notice(cleared + ' pending choice' + (cleared === 1 ? '' : 's') + ' cleared for "' + groupName + '".');
 	}
 
 	function rulingButtons(hold) {
@@ -602,6 +677,8 @@
 	});
 
 	listEl.addEventListener("click", function (ev) {
+		if (ev.target.id === "accept-group") { acceptGroup(); return; }
+		if (ev.target.id === "reject-group") { rejectGroup(); return; }
 		var li = ev.target.closest("li[data-hold-id]");
 		if (!li) return;
 		var list = visibleHolds();
