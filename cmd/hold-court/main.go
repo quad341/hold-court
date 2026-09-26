@@ -31,6 +31,7 @@ const configFileName = "holdcourt.toml"
 type fileConfig struct {
 	Feed                string   `toml:"feed"`
 	Rulings             string   `toml:"rulings"`
+	Groups              string   `toml:"groups"`
 	OnRuling            []string `toml:"on_ruling"`
 	ConsumerDescription string   `toml:"consumer_description"`
 }
@@ -51,6 +52,7 @@ func serve(args []string) error {
 	fset := flag.NewFlagSet("serve", flag.ExitOnError)
 	feedDir := fset.String("feed", "feed", "directory of hold JSON documents to scan")
 	rulingsDir := fset.String("rulings", "rulings", "directory rulings and their hook results are written/read")
+	groupsFile := fset.String("groups", "groups.json", "path to a curator-proposed hold groupings JSON file (optional)")
 	dbPath := fset.String("db", "hold-court.db", "path to the SQLite state file")
 	addr := fset.String("addr", "127.0.0.1:0", "listen address (127.0.0.1:0 picks a free port)")
 	user := fset.String("user", "operator", "local maintainer identity for read state and ruled_by")
@@ -73,6 +75,9 @@ func serve(args []string) error {
 	if !explicit["rulings"] && fc.Rulings != "" {
 		*rulingsDir = fc.Rulings
 	}
+	if !explicit["groups"] && fc.Groups != "" {
+		*groupsFile = fc.Groups
+	}
 
 	st, err := store.Open(*dbPath)
 	if err != nil {
@@ -89,6 +94,7 @@ func serve(args []string) error {
 		RulingsDir:          *rulingsDir,
 		Store:               st,
 		OnRuling:            fc.OnRuling,
+		GroupsFile:          *groupsFile,
 		ConsumerDescription: fc.ConsumerDescription,
 		User:                *user,
 	})
