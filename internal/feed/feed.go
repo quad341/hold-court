@@ -35,6 +35,17 @@ type Hold struct {
 	HeldAt            time.Time `json:"held_at"`
 	Resolved          bool      `json:"resolved"`
 	ResolvedReason    string    `json:"resolved_reason"`
+	JevWould          *JevWould `json:"jev_would,omitempty"`
+}
+
+// JevWould is jev's (TypeSafe System One) logged would-be category pick for
+// this hold, carried from the feed document's optional jev_would field. It
+// is tracking-only, log-only evidence (hc-o5t): Hold Court renders it beside
+// a hold but never uses it to pre-select, default, sort, or filter anything.
+type JevWould struct {
+	Category    string  `json:"category"`
+	Probability float64 `json:"probability"`
+	Confidence  float64 `json:"confidence"`
 }
 
 // ParseHold decodes a single feed document. An "id" field is required.
