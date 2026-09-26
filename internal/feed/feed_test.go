@@ -72,6 +72,39 @@ func TestParseHold_ValidDocument(t *testing.T) {
 	if h.ResolvedReason != "" {
 		t.Errorf("ResolvedReason = %q", h.ResolvedReason)
 	}
+	if h.JevWould != nil {
+		t.Errorf("JevWould = %+v, want nil for a document without jev_would", h.JevWould)
+	}
+}
+
+// TestParseHold_WithJevWould covers hc-o5t: jev's (TypeSafe System One)
+// logged category pick is optional, log-only evidence carried alongside a
+// hold. When present it must parse into JevWould with its three fields.
+func TestParseHold_WithJevWould(t *testing.T) {
+	doc := `{
+  "id": "gastownhall-gascity-5795-a1b2c3",
+  "jev_would": {
+    "category": "fix-merge",
+    "probability": 0.62,
+    "confidence": 0.81
+  }
+}`
+	h, err := ParseHold([]byte(doc))
+	if err != nil {
+		t.Fatalf("ParseHold returned error: %v", err)
+	}
+	if h.JevWould == nil {
+		t.Fatal("JevWould = nil, want populated")
+	}
+	if h.JevWould.Category != "fix-merge" {
+		t.Errorf("JevWould.Category = %q, want %q", h.JevWould.Category, "fix-merge")
+	}
+	if h.JevWould.Probability != 0.62 {
+		t.Errorf("JevWould.Probability = %v, want %v", h.JevWould.Probability, 0.62)
+	}
+	if h.JevWould.Confidence != 0.81 {
+		t.Errorf("JevWould.Confidence = %v, want %v", h.JevWould.Confidence, 0.81)
+	}
 }
 
 func TestParseHold_MissingID(t *testing.T) {

@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"io"
@@ -88,6 +89,58 @@ func newTestHandler(t *testing.T) http.Handler {
 	return h
 }
 
+// newTestHandlerWithJevWould is newTestHandler's fixture with jev's (TypeSafe
+// System One) logged pick added, for hc-o5t: proving jev_would renders where
+// expected and never influences ordering, folders, or default state.
+func newTestHandlerWithJevWould(t *testing.T) http.Handler {
+	t.Helper()
+
+	feedDir := t.TempDir()
+	holdJSON := `{
+  "id": "gastownhall-gascity-5795-a1b2c3",
+  "source": "maintainer-pr-review",
+  "repo": "gastownhall/gascity",
+  "pr": 5795,
+  "url": "https://github.com/gastownhall/gascity/pull/5795",
+  "class": "ambiguous-needs-discussion",
+  "title": "Push-tier relaxation",
+  "question": "Should the push tier guard relax for release branches?",
+  "review_body_md": "The guard currently blocks all force pushes.",
+  "verdict": "fix-merge",
+  "head_sha": "abc123",
+  "held_at": "2026-09-01T15:00:00Z",
+  "resolved": false,
+  "resolved_reason": "",
+  "jev_would": {
+    "category": "auto-merge",
+    "probability": 0.71,
+    "confidence": 0.85
+  }
+}`
+	if err := os.WriteFile(filepath.Join(feedDir, "hold1.json"), []byte(holdJSON), 0o600); err != nil {
+		t.Fatalf("write feed fixture: %v", err)
+	}
+
+	rulingsDir := t.TempDir()
+
+	st, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	h, err := New(Config{
+		FeedDir:    feedDir,
+		RulingsDir: rulingsDir,
+		Store:      st,
+		User:       "operator",
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	return h
+}
+
 func TestServeHTTP_RootRendersShellWithoutHoldContents(t *testing.T) {
 	h := newTestHandler(t)
 
@@ -144,6 +197,67 @@ func TestHandleHolds_ServesContentsAndUnread(t *testing.T) {
 	for _, want := range []string{`"title":"Push-tier relaxation"`, `"question":"Should the push tier guard relax for release branches?"`, `"unread":true`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("holds document missing %s; body=%s", want, body)
+		}
+	}
+}
+
+// TestHandleHolds_IncludesJevWouldWhenPresent covers hc-o5t: jev's logged
+// pick must appear in the holds document whenever the feed hold carries one.
+func TestHandleHolds_IncludesJevWouldWhenPresent(t *testing.T) {
+	h := newTestHandlerWithJevWould(t)
+	body := getHoldsBody(t, h)
+	for _, want := range []string{`"jev_would"`, `"category":"auto-merge"`, `"probability":0.71`, `"confidence":0.85`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("holds document missing %s; body=%s", want, body)
+		}
+	}
+}
+
+// TestHandleHolds_OmitsJevWouldWhenAbsent covers hc-o5t: a hold with no
+// logged jev pick must not gain a jev_would key at all.
+func TestHandleHolds_OmitsJevWouldWhenAbsent(t *testing.T) {
+	h := newTestHandler(t)
+	body := getHoldsBody(t, h)
+	if strings.Contains(body, "jev_would") {
+		t.Errorf("holds document should omit jev_would when the feed hold has none; body=%s", body)
+	}
+}
+
+// TestJevWould_NeverAffectsOrderingFoldersOrDefaultFolder covers hc-o5t's
+// exit contract: jev's logged pick is log-only evidence. Two otherwise
+// identical feeds that differ only in jev_would must produce identical hold
+// order, state, folder counts, and default folder selection -- jev's pick
+// must never pre-select, default, sort, or filter anything.
+func TestJevWould_NeverAffectsOrderingFoldersOrDefaultFolder(t *testing.T) {
+	withoutJev := newTestHandler(t)
+	withJev := newTestHandlerWithJevWould(t)
+
+	var docWithout, docWith holdsDocument
+	if err := json.Unmarshal([]byte(getHoldsBody(t, withoutJev)), &docWithout); err != nil {
+		t.Fatalf("unmarshal without jev_would: %v", err)
+	}
+	if err := json.Unmarshal([]byte(getHoldsBody(t, withJev)), &docWith); err != nil {
+		t.Fatalf("unmarshal with jev_would: %v", err)
+	}
+
+	if len(docWithout.Holds) != len(docWith.Holds) {
+		t.Fatalf("hold count differs: %d vs %d", len(docWithout.Holds), len(docWith.Holds))
+	}
+	for i := range docWithout.Holds {
+		if docWithout.Holds[i].ID != docWith.Holds[i].ID {
+			t.Errorf("hold order differs at %d: %s vs %s", i, docWithout.Holds[i].ID, docWith.Holds[i].ID)
+		}
+		if docWithout.Holds[i].State != docWith.Holds[i].State {
+			t.Errorf("hold state differs at %d: %s vs %s", i, docWithout.Holds[i].State, docWith.Holds[i].State)
+		}
+	}
+	if !reflect.DeepEqual(docWithout.Folders, docWith.Folders) {
+		t.Errorf("folders differ:\nwithout jev_would: %+v\nwith jev_would:    %+v", docWithout.Folders, docWith.Folders)
+	}
+
+	for _, h := range []http.Handler{withoutJev, withJev} {
+		if body := getIndexBody(t, h); !strings.Contains(body, `data-folder-id="inbox"`) {
+			t.Error("default folder selection changed: expected data-folder-id=\"inbox\" in shell")
 		}
 	}
 }
@@ -380,6 +494,30 @@ func TestHandleSaveRulings_QuietOnSuccess(t *testing.T) {
 	}
 	if logBuf.Len() != 0 {
 		t.Errorf("successful ruling write should be quiet; got log output: %q", logBuf.String())
+	}
+}
+
+// TestHandleSaveRulings_SnapshotsJevWould covers hc-o5t: a saved ruling must
+// snapshot jev's logged pick (if any) from the hold at save time, so the
+// operator's actual ruling and jev's logged pick are visible side by side in
+// the outcome record. Hold Court does not compute or assert agreement here;
+// this is a raw snapshot only.
+func TestHandleSaveRulings_SnapshotsJevWould(t *testing.T) {
+	h := newTestHandlerWithJevWould(t)
+
+	body := `[{"hold_id":"` + fixtureHoldID + `","action":"proceed","note":"Proceed with the proposed fix and verify it before merging."}]`
+	req := httptest.NewRequest(http.MethodPost, "/api/rulings", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+	}
+	for _, want := range []string{`"ok":true`, `"jev_would"`, `"category":"auto-merge"`} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("save-rulings response missing %s; body=%s", want, w.Body.String())
+		}
 	}
 }
 

@@ -136,6 +136,50 @@ class ExportTests(unittest.TestCase):
         self.refresh()
         self.assertEqual(self.docs(), [])
 
+    # jev_would (hc-o5t): jev (TypeSafe System One) logs a would-be category
+    # pick to <run>/jev-split.json (mpr_jt__write_record in jev-track-lib.sh).
+    # It is tracking-only and optional; the adapter only surfaces it -- never
+    # writes it -- and only once its status is "determined".
+
+    def jev_split(self, status, choice="fix-merge", probabilities=None, confidence=0.81):
+        return {
+            "ts": "2026-09-05T10:00:30Z", "call_site": "mpr.split_tiebreak", "tracking_only": True,
+            "status": status, "call_id": "call-123", "model": "some-model",
+            "answers": {"category": {"choice": choice,
+                                      "probabilities": probabilities or {
+                                          "auto-merge": 0.05, "fix-merge": 0.62, "cherry-pick": 0.10,
+                                          "request-changes": 0.20, "close-superseded": 0.03,
+                                      }, "confidence": confidence}},
+            "context": {},
+        }
+
+    def test_jev_would_populated_when_determined(self):
+        self.put(self.run / "jev-split.json", self.jev_split("determined"))
+        self.refresh()
+        hold = self.docs()[0]
+        self.assertEqual(hold["jev_would"], {"category": "fix-merge", "probability": 0.62, "confidence": 0.81})
+
+    def test_jev_would_absent_without_file(self):
+        self.refresh()
+        hold = self.docs()[0]
+        self.assertNotIn("jev_would", hold)
+
+    def test_jev_would_absent_when_pending_or_undetermined(self):
+        for status in ["pending", "undetermined"]:
+            self.put(self.run / "jev-split.json", self.jev_split(status))
+            self.refresh()
+            hold = self.docs()[0]
+            self.assertNotIn("jev_would", hold, f"status={status}")
+
+    def test_adapter_never_writes_jev_split_json(self):
+        jev_path = self.run / "jev-split.json"
+        self.put(jev_path, self.jev_split("determined"))
+        before_text = jev_path.read_text()
+        before_mtime = jev_path.stat().st_mtime_ns
+        self.refresh()
+        self.assertEqual(jev_path.read_text(), before_text)
+        self.assertEqual(jev_path.stat().st_mtime_ns, before_mtime)
+
 
 if __name__ == "__main__":
     unittest.main()
