@@ -41,8 +41,7 @@ func extractEscapeHTML(t *testing.T) string {
 // characters too, or a value containing one breaks out of the attribute --
 // this is the round-1 review security blocker on hc-jgb.
 func TestEscapeHTML_SafeForDoubleQuotedAttribute(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
+	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node not on PATH; skipping JS-level escapeHTML regression test")
 	}
 
@@ -84,7 +83,8 @@ var inputs = ` + string(inputsJSON) + `;
 console.log(JSON.stringify(inputs.map(escapeHTML)));
 `
 
-	cmd := exec.Command(node, "-e", script)
+	cmd := exec.Command("node")
+	cmd.Stdin = strings.NewReader(script)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
