@@ -120,6 +120,10 @@ type holdJSON struct {
 	Ruling              *ruling.Ruling   `json:"ruling,omitempty"`
 	Result              *ruling.Result   `json:"result,omitempty"`
 	ResolvedReason      string           `json:"resolved_reason,omitempty"`
+	// JevWould is jev's (TypeSafe System One) logged would-be category pick,
+	// log-only evidence (hc-o5t): it never affects hold order, folders, or
+	// default state, and the reading pane must label it accordingly.
+	JevWould *feed.JevWould `json:"jev_would,omitempty"`
 }
 
 // folderJSON is one entry in the folders pane: either a selectable folder
@@ -360,6 +364,7 @@ func (s *server) buildHoldView(h *feed.Hold) (holdJSON, error) {
 		Ruling:              rl,
 		Result:              result,
 		ResolvedReason:      h.ResolvedReason,
+		JevWould:            h.JevWould,
 	}, nil
 }
 
@@ -551,6 +556,9 @@ func (s *server) handleSaveRulings(w http.ResponseWriter, r *http.Request) {
 			Note:    item.Note,
 			RuledBy: s.cfg.User,
 			RuledAt: time.Now(),
+			// Snapshot jev's logged pick (if any) at save time -- see
+			// ruling.Ruling.JevWould (hc-o5t).
+			JevWould: view.JevWould,
 		}
 
 		if retry {

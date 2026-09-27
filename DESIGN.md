@@ -163,7 +163,12 @@ maintainer-pr-review exporter is simply the first adapter.
   "head_sha": "abc123...",
   "held_at": "2026-09-01T15:00:00Z",
   "resolved": false,                          // adapter sets true when OBE
-  "resolved_reason": ""                       // "merged", "closed", ...
+  "resolved_reason": "",                      // "merged", "closed", ...
+  "jev_would": {                              // optional; see below
+    "category": "fix-merge",
+    "probability": 0.62,
+    "confidence": 0.81
+  }
 }
 ```
 
@@ -175,6 +180,11 @@ Rules:
   pipelines re-derive holds per head.
 - `resolved: true` holds auto-move out of the inbox (the "54 already-merged
   PRs buried the queue" lesson, mechanized).
+- `jev_would` is jev's (TypeSafe System One) logged would-be category pick,
+  omitted unless jev has reached a determined answer for this hold. It is
+  **LOG ONLY**: Hold Court shows it beside the hold but never uses it to
+  pre-select, default, sort, or filter anything — the operator doesn't trust
+  it yet.
 
 ## Rulings out
 
@@ -190,9 +200,15 @@ A ruling writes `rulings/<hold-id>.json`:
   "action": "proceed" | "changes" | "close" | "discuss",
   "note": "free text",
   "ruled_by": "operator",        // local identity; OAuth login later
-  "ruled_at": "2026-09-01T16:20:00Z"
+  "ruled_at": "2026-09-01T16:20:00Z",
+  "jev_would": { "category": "fix-merge", "probability": 0.62, "confidence": 0.81 }
 }
 ```
+
+`jev_would` is a snapshot of the hold's own `jev_would` field at the moment
+the ruling is saved, present only when the hold had one. It lets the
+operator's actual ruling and jev's logged pick sit side by side in the
+outcome record; Hold Court does not compute or assert whether they agree.
 
 plus an optional configured hook: `on_ruling = ["/path/to/cmd"]` receives the
 JSON on stdin. The executing automation (a human's script, a CI job, or an AI

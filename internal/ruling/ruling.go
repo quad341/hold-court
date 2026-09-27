@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"time"
+
+	"github.com/quad341/hold-court/internal/feed"
 )
 
 // Action is a maintainer's verdict on a hold.
@@ -55,6 +57,11 @@ type Ruling struct {
 	Note    string    `json:"note"`
 	RuledBy string    `json:"ruled_by"`
 	RuledAt time.Time `json:"ruled_at"`
+	// JevWould is a raw snapshot of the hold's jev_would (if any) at the
+	// moment this ruling was saved, so the operator's decision and jev's
+	// logged pick are visible side by side in the outcome record. Write
+	// never computes or asserts agreement (hc-o5t).
+	JevWould *feed.JevWould `json:"jev_would,omitempty"`
 }
 
 // Result is the JSON document a ruling's consumer writes back to

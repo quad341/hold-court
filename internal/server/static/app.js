@@ -245,6 +245,9 @@
 			'<h1>' + escapeHTML(hold.title) + "</h1>" +
 			'<p class="hold-author">Author: ' + (hold.author ? '@' + escapeHTML(hold.author) : 'unknown') + '</p>' +
 			'<p class="question">' + escapeHTML(hold.question) + "</p>" +
+			(hold.jev_would ? '<p class="jev-would">jev would (log only — not a recommendation): <strong>' +
+				escapeHTML(hold.jev_would.category) + '</strong> (p=' + hold.jev_would.probability +
+				', confidence=' + hold.jev_would.confidence + ')</p>' : '') +
 			'<p><a href="' + escapeHTML(hold.url) + '" target="_blank" rel="noopener">' +
 			escapeHTML(hold.repo) + " #" + hold.pr + "</a> &middot; " + escapeHTML(hold.state) + "</p>" +
 			'<div id="latest-status">' + latestStatus(hold) + '</div>' +

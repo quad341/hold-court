@@ -5,8 +5,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/quad341/hold-court/internal/feed"
 )
 
 func TestWrite_CreatesFileWithSchema(t *testing.T) {
@@ -38,6 +41,73 @@ func TestWrite_CreatesFileWithSchema(t *testing.T) {
 	}
 	if !got.RuledAt.Equal(r.RuledAt) {
 		t.Errorf("RuledAt = %v, want %v", got.RuledAt, r.RuledAt)
+	}
+}
+
+// TestWrite_SnapshotsJevWouldWhenPresent covers hc-o5t: when the hold being
+// ruled on carries jev's logged pick, Write must snapshot it into the
+// written ruling so the operator's decision and jev's logged pick are both
+// visible side by side in the outcome record. This is a raw snapshot only;
+// Write does not compute or assert agreement.
+func TestWrite_SnapshotsJevWouldWhenPresent(t *testing.T) {
+	dir := t.TempDir()
+	r := Ruling{
+		HoldID:  "some-hold",
+		Action:  Proceed,
+		Note:    "looks fine, ship it",
+		RuledBy: "operator",
+		RuledAt: time.Now(),
+		JevWould: &feed.JevWould{
+			Category:    "fix-merge",
+			Probability: 0.62,
+			Confidence:  0.81,
+		},
+	}
+
+	if err := Write(dir, r); err != nil {
+		t.Fatalf("Write returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "some-hold.json")) //nolint:gosec // reads back the fixture this test just wrote
+	if err != nil {
+		t.Fatalf("expected file: %v", err)
+	}
+
+	var got Ruling
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal written ruling: %v", err)
+	}
+	if got.JevWould == nil {
+		t.Fatal("JevWould = nil, want snapshot preserved")
+	}
+	if *got.JevWould != *r.JevWould {
+		t.Errorf("JevWould = %+v, want %+v", got.JevWould, r.JevWould)
+	}
+}
+
+// TestWrite_NoJevWouldKeyWhenAbsent covers hc-o5t: a hold with no logged jev
+// pick must not gain a jev_would key at all, keeping the written ruling
+// identical to today's schema when jev has nothing to say.
+func TestWrite_NoJevWouldKeyWhenAbsent(t *testing.T) {
+	dir := t.TempDir()
+	r := Ruling{
+		HoldID:  "some-hold",
+		Action:  Proceed,
+		Note:    "looks fine, ship it",
+		RuledBy: "operator",
+		RuledAt: time.Now(),
+	}
+
+	if err := Write(dir, r); err != nil {
+		t.Fatalf("Write returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "some-hold.json")) //nolint:gosec // reads back the fixture this test just wrote
+	if err != nil {
+		t.Fatalf("expected file: %v", err)
+	}
+	if strings.Contains(string(data), "jev_would") {
+		t.Errorf("expected no jev_would key when jev has no logged pick, got: %s", data)
 	}
 }
 

@@ -198,6 +198,28 @@ def diagnostic_block(text):
     return f'{fence}text\n{text.strip()}\n{fence}'
 
 
+def jev_would_pick(run):
+    """Read <run>/jev-split.json if present (hc-o5t).
+
+    jev (TypeSafe System One) logs a would-be category pick there
+    (mpr_jt__write_record in jev-track-lib.sh). It is tracking-only and this
+    adapter only ever reads it -- never writes it -- surfacing a pick only
+    once its status is "determined"; pending, undetermined, or a missing
+    file all mean "nothing to show yet".
+    """
+    split = optional_json(run / "jev-split.json")
+    if split.get("status") != "determined":
+        return None
+    category = (split.get("answers") or {}).get("category") or {}
+    choice = category.get("choice")
+    probabilities = category.get("probabilities") or {}
+    return {
+        "category": choice,
+        "probability": probabilities.get(choice),
+        "confidence": category.get("confidence"),
+    }
+
+
 def export_hold(repo, marker, live, record_only=True):
     notice = read_json(marker)
     if notice.get("signature") == "skip-too-large" or notice.get("reason_code") == "skip-too-large":
@@ -255,7 +277,7 @@ def export_hold(repo, marker, live, record_only=True):
     if not author:
         recorded_author = metadata.get("author") or {}
         author = recorded_author.get("login", "") if isinstance(recorded_author, dict) else recorded_author
-    return {
+    hold = {
         "author": author,
         "decision_context_md": decision_context(run, decision, category, reason),
         "id": hold_id, "source": SOURCE, "repo": repo, "pr": number,
@@ -264,7 +286,11 @@ def export_hold(repo, marker, live, record_only=True):
         "question": reason, "review_body_md": "\n\n".join(body),
         "verdict": category, "head_sha": head, "held_at": held_at,
         "resolved": bool(resolved), "resolved_reason": resolved,
-    }, "stood-down" if resolved else "inbox"
+    }
+    jev_would = jev_would_pick(run)
+    if jev_would is not None:
+        hold["jev_would"] = jev_would
+    return hold, "stood-down" if resolved else "inbox"
 
 
 def refresh(config, live_loader=open_prs):
