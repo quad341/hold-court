@@ -83,6 +83,7 @@ body {
 .hold-title { display: block; }
 .hold-meta { display: block; opacity: 0.65; font-size: 0.85em; font-weight: normal; margin-top: 0.25rem; }
 .activity-tag { color: var(--accent); font-weight: bold; }
+.group-tag { color: var(--accent); font-weight: bold; }
 #live-status { margin-left: auto; font-size: 0.8em; }
 #data-status { font-size: 0.8em; opacity: 0.75; white-space: nowrap; }
 #activity-button, #show-update, #rebuild-cache, #cache-notice-dismiss { font: inherit; cursor: pointer; }
@@ -235,3 +236,20 @@ body {
 #search-input { flex: 1 1 18rem; min-width: 10rem; }
 #search-summary { flex-basis: 100%; font-size: 0.85em; }
 .hold-author { font-weight: normal; }
+
+#group-banner { border-bottom: 1px solid var(--border); padding: 0.5rem 0.6rem; margin-bottom: 0.25rem; }
+#group-banner p { margin: 0 0 0.4rem; }
+#group-banner button {
+	font: inherit;
+	padding: 0.3rem 0.7rem;
+	margin: 0 0.3rem 0 0;
+	border: 1px solid var(--border);
+	border-radius: 5px;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+}
+#group-banner button:hover { background: var(--bg-selected); }
+#group-banner button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+#group-banner button:disabled { opacity: 0.5; cursor: default; }
+#group-banner button#accept-group { border-color: var(--accent); color: var(--accent); }
